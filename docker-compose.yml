@@ -1,0 +1,38 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: personal-crm-db
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+      POSTGRES_DB: personal_crm
+    ports:
+      - "127.0.0.1:5433:5432"  # 5432 让给宿主机上其他项目（如 langfuse），本库固定映射 5433
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d personal_crm"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    container_name: personal-crm-app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://crm:crm@db:5432/personal_crm  # 容器网络内仍是 5432，宿主机映射见 db.ports
+      JWT_SECRET: ${JWT_SECRET:-please-change-me-in-production}
+      DEBUG: "false"
+    ports:
+      - "8100:8100"
+    depends_on:
+      db:
+        condition: service_healthy
+    # --no-sync 同 Dockerfile CMD：运行期零网络安装，只执行迁移/种子/服务
+    command: >
+      sh -c "uv run --no-sync alembic upgrade head
+      && uv run --no-sync python scripts/seed.py
+      && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8100"
+
+volumes:
+  db_data:

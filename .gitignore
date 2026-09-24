@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+backend/.env
+
+# Node
+node_modules/
+frontend/dist/
+*.local
+
+# 系统
+.DS_Store
+
+# 构建产物（vue-tsc -b 生成；vite.config 的源码是 vite.config.ts）
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.tsbuildinfo

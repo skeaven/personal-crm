@@ -1,0 +1,47 @@
+[project]
+name = "personal-crm-backend"
+version = "0.1.0"
+description = "Personal CRM backend — FastAPI 分层单体（api/service/repository/model）"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyjwt>=2.8",
+    "pwdlib[bcrypt]>=0.2",
+    "lunar-python>=1.4.8",
+    "deepagents>=0.7.15",
+    "mcp>=2.2.0",
+    "langchain-openai>=1.6.2",
+    "pgvector>=0.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]  # Alembic 自动生成的迁移不做检查
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI 依赖注入的标准写法就是 Depends() 作默认参数
+"**/api.py" = ["B008"]
+"app/api/deps.py" = ["B008"]

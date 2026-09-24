@@ -1,0 +1,126 @@
+/* 全局样式：tokens 注入 CSS 变量 + 基础排版 + 极简动效基线。业务组件只引用这些变量。 */
+:root {
+  --crm-canvas: #ffffff;
+  --crm-bone: #f7f7f5;
+  --crm-ink: #1a1a1a;
+  --crm-ink-hover: #333333;
+  --crm-muted: #787774;
+  --crm-line: #eaeaea;
+  --crm-seal: #b93c2b;
+  --crm-seal-soft: #fdebec;
+  --crm-success: #346538;
+  --crm-warning: #956400;
+  --crm-info: #1f6c9f;
+  --crm-font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    'Helvetica Neue', sans-serif;
+  --crm-font-seal: 'Songti SC', 'STSong', 'Noto Serif SC', serif;
+  --crm-radius-control: 6px;
+  --crm-radius-float: 10px;
+  --crm-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --crm-ease: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --crm-entry: 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--crm-canvas);
+  color: var(--crm-ink);
+  font-family: var(--crm-font-body);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 展示层级：同族字体 + 字重 + 紧字距（极简不换家族） */
+.crm-display {
+  font-family: var(--crm-font-body);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* 名册式列表行：无阴影，仅悬停底色变化（动效只回应动作） */
+.crm-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-control);
+  cursor: pointer;
+  transition: background var(--crm-ease);
+}
+.crm-roster-row:hover {
+  background: var(--crm-bone);
+}
+.crm-roster-row:last-child {
+  border-bottom: none;
+}
+
+/* 按钮按压微缩（tactile feedback） */
+.el-button {
+  transition: transform 120ms ease;
+}
+.el-button:active {
+  transform: scale(0.98);
+}
+
+/* 内容进入：全站唯一非触发动效（缓出淡入） */
+.crm-rise {
+  animation: crm-rise var(--crm-entry);
+}
+@keyframes crm-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* 键盘可达性 */
+:focus-visible {
+  outline: 2px solid var(--crm-ink);
+  outline-offset: 2px;
+}
+
+/* ---- 管理页布局原语（各功能页共用，避免 scoped 重复定义） ---- */
+.crm-page {
+  width: 100%;
+}
+.crm-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.crm-page-title {
+  margin: 0;
+  font-size: 32px;
+}
+.crm-page-sub {
+  margin: 8px 0 0;
+  color: var(--crm-muted);
+  font-size: 14px;
+}
+.crm-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.crm-search {
+  max-width: 320px;
+}
+.crm-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

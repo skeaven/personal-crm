@@ -1,0 +1,7 @@
+# 生产覆盖层：80 端口对外，叠加在 docker-compose.yml 之上
+# 用法：JWT_SECRET 随机值写入同目录 .env 后
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  backend:
+    ports: !override
+      - "80:8100"   # 只对外 80；!override 替换基础文件的 8100 映射，避免双端口暴露

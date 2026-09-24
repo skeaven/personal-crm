@@ -1,0 +1,104 @@
+/*
+ * Element Plus 主题映射层（D13）：把组件库的 --el-* 变量统一翻译为 design tokens。
+ * 本文件是组件库换肤的唯一收敛点；业务组件禁止直接写 --el-* 常量。
+ * 必须在 element-plus 官方样式之后加载（同名 :root 变量后者覆盖）。
+ */
+:root {
+  /* 主交互色 = 墨黑（Notion 式实心黑按钮）。light-N 为 ink 与白的既定混合档，
+     是 --crm-ink 的派生梯度（派生值只允许出现在本映射层）。 */
+  --el-color-primary: var(--crm-ink);
+  --el-color-primary-light-3: #4d4d4d; /* ink 70% */
+  --el-color-primary-light-5: #8c8c8c; /* ink 50% */
+  --el-color-primary-light-7: #bfbfbf; /* ink 30% */
+  --el-color-primary-light-8: #d6d6d6; /* ink 20% */
+  --el-color-primary-light-9: #ebebeb; /* ink 10%（悬停底） */
+  --el-color-primary-dark-2: #0d0d0d;
+
+  /* 语义色：低饱和三色 + 印泥红只作危险/提醒 */
+  --el-color-success: var(--crm-success);
+  --el-color-warning: var(--crm-warning);
+  --el-color-info: var(--crm-info);
+  --el-color-danger: var(--crm-seal);
+  --el-color-error: var(--crm-seal);
+  --el-color-error-light-9: var(--crm-seal-soft);
+
+  /* 文字层级：ink 正文 / muted 次级 */
+  --el-text-color-primary: var(--crm-ink);
+  --el-text-color-regular: var(--crm-ink);
+  --el-text-color-secondary: var(--crm-muted);
+  --el-text-color-placeholder: #b0b0ae;
+  --el-text-color-disabled: #c4c4c2;
+
+  /* 结构线与填充：line 是全站唯一 1px 边框色，bone 是唯一次级面 */
+  --el-border-color: var(--crm-line);
+  --el-border-color-light: var(--crm-line);
+  --el-border-color-lighter: var(--crm-line);
+  --el-border-color-extra-light: var(--crm-bone);
+  --el-border-color-hover: var(--crm-muted);
+  --el-fill-color: var(--crm-bone);
+  --el-fill-color-light: var(--crm-bone);
+  --el-fill-color-lighter: var(--crm-bone);
+  --el-fill-color-blank: var(--crm-canvas);
+  --el-bg-color: var(--crm-canvas);
+  --el-bg-color-page: var(--crm-canvas);
+  --el-bg-color-overlay: var(--crm-canvas);
+  --el-disabled-bg-color: var(--crm-bone);
+  --el-disabled-border-color: var(--crm-line);
+
+  /* 形状与字体：控件 6px / 浮层 10px，正文 15px，全局单一无衬线 */
+  --el-border-radius-base: var(--crm-radius-control);
+  --el-border-radius-small: 4px;
+  --el-border-radius-round: 999px;
+  --el-font-family: var(--crm-font-body);
+  --el-font-size-base: 15px;
+  --el-font-size-small: 13px;
+  --el-font-size-extra-small: 12px;
+
+  /* 阴影：唯一允许的极轻浮起；弹层用略深的同梯度 */
+  --el-box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --el-box-shadow-light: var(--crm-shadow-hover);
+  --el-box-shadow-lighter: var(--crm-shadow-hover);
+}
+
+/* v3 纸墨风格：标签为素面 chips（去默认描边），与名册行的"线只在必要时"一致 */
+.el-tag {
+  border: none;
+}
+
+/* v3 纸墨风格：空状态不放大插画，只留一句灰色描述 */
+.el-empty__image {
+  display: none;
+}
+
+/* 印泥红仅危险/提醒：按钮 danger 保持印泥红实心 */
+.el-button--danger {
+  --el-button-bg-color: var(--crm-seal);
+  --el-button-border-color: var(--crm-seal);
+}
+
+/* 侧边导航（el-menu）：骨灰白底、墨黑激活、无默认描边，视觉与原导航一致 */
+.side-menu {
+  border-right: none;
+  background: transparent;
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--crm-muted);
+  --el-menu-hover-bg-color: #ececeb;
+  --el-menu-hover-text-color: var(--crm-ink);
+  --el-menu-active-color: var(--crm-ink);
+  --el-menu-item-height: 38px;
+}
+.side-menu .el-menu-item {
+  border-radius: var(--crm-radius-control);
+  margin: 2px 0;
+}
+.side-menu .el-menu-item.is-active {
+  background: #ececeb;
+}
+
+/* 详情页描述列表：label 列定宽防竖排折行 */
+.el-descriptions .info-label-cell {
+  min-width: 64px;
+}
+.el-descriptions .el-descriptions__label {
+  white-space: nowrap;
+}
