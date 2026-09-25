@@ -1,18 +1,25 @@
 <script setup lang="ts">
-/** 资金往来页：借贷/礼金流水（多维过滤 + 结清操作）。 */
-import { onMounted, ref } from 'vue'
+/** 资金往来页：借贷/礼金流水（多维过滤 + 页码分页 + 结清操作）+ 共享表单弹窗。 */
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fundsApi } from '@/api/funds'
 import { ApiError } from '@/api/client'
-import type { FundCategory, FundDirection, FundFlowOut, FundStatus } from '@/api/types'
+import type { FundCategory, FundFlowOut, FundStatus } from '@/api/types'
 import { useContactOptions } from '@/composables/useContactOptions'
+import FundFormDialog from '@/components/FundFormDialog.vue'
 
-const { options, load: loadContacts, nameOf } = useContactOptions()
+const { load: loadContacts, nameOf } = useContactOptions()
 
+const PAGE_SIZE = 20
 const loading = ref(false)
 const search = ref('')
 const statusFilter = ref<'all' | FundStatus>('all')
 const flows = ref<FundFlowOut[]>([])
+const page = ref(1)
+const total = ref(0)
+
+const dialogVisible = ref(false)
+const editingFlow = ref<FundFlowOut | null>(null)
 
 const categoryLabel: Record<FundCategory, string> = {
   loan: '借款',
@@ -21,19 +28,35 @@ const categoryLabel: Record<FundCategory, string> = {
   other: '其他',
 }
 
-/** 拉取资金流水（pending 视图后端按应还日升序）。 */
+/** 拉取当前页（pending 视图后端按应还日升序；总数用于页码）。 */
 async function loadFlows(): Promise<void> {
   loading.value = true
   try {
-    flows.value = await fundsApi.list({
+    const { items, total: count } = await fundsApi.list({
       search: search.value || undefined,
       status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      limit: PAGE_SIZE,
+      offset: (page.value - 1) * PAGE_SIZE,
     })
+    flows.value = items
+    total.value = count
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) ElMessage.error('资金记录加载失败')
   } finally {
     loading.value = false
   }
+}
+
+/** 打开新建弹窗。 */
+function openCreate(): void {
+  editingFlow.value = null
+  dialogVisible.value = true
+}
+
+/** 打开编辑弹窗（与详情页往来是同一个组件）。 */
+function openEdit(flow: FundFlowOut): void {
+  editingFlow.value = flow
+  dialogVisible.value = true
 }
 
 /** 一键结清/重开（服务端自动维护 settled_at）。 */
@@ -46,78 +69,7 @@ async function toggleSettle(flow: FundFlowOut): Promise<void> {
   }
 }
 
-// ---- 抽屉表单 ----
-const showDialog = ref(false)
-const saving = ref(false)
-const editingId = ref<number | null>(null)
-const form = ref(emptyForm())
-
-function emptyForm() {
-  return {
-    direction: 'out' as FundDirection,
-    category: 'loan' as FundCategory,
-    contact_id: null as number | null,
-    amount: '',
-    occurred_at: null as string | null,
-    due_at: null as string | null,
-    description: '',
-    visibility: 'family' as 'family' | 'private',
-  }
-}
-
-function openCreate(): void {
-  editingId.value = null
-  form.value = emptyForm()
-  showDialog.value = true
-}
-
-function openEdit(flow: FundFlowOut): void {
-  editingId.value = flow.id
-  form.value = {
-    direction: flow.direction,
-    category: flow.category,
-    contact_id: flow.contact_id,
-    amount: flow.amount,
-    occurred_at: flow.occurred_at,
-    due_at: flow.due_at,
-    description: flow.description ?? '',
-    visibility: flow.visibility,
-  }
-  showDialog.value = true
-}
-
-async function submit(): Promise<void> {
-  if (!form.value.occurred_at) {
-    ElMessage.error('请选择发生日期')
-    return
-  }
-  saving.value = true
-  try {
-    const payload = {
-      direction: form.value.direction,
-      category: form.value.category,
-      contact_id: form.value.contact_id,
-      amount: form.value.amount,
-      occurred_at: form.value.occurred_at as string,
-      due_at: form.value.due_at,
-      description: form.value.description || null,
-    }
-    if (editingId.value === null) {
-      await fundsApi.create(payload)
-      ElMessage.success('资金记录已记下')
-    } else {
-      await fundsApi.update(editingId.value, payload)
-      ElMessage.success('资金记录已更新')
-    }
-    showDialog.value = false
-    await loadFlows()
-  } catch (error) {
-    ElMessage.error(error instanceof ApiError ? error.message : '保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
+/** 删除资金记录（仅所有者，后端校验）。 */
 async function remove(flow: FundFlowOut): Promise<void> {
   try {
     await fundsApi.remove(flow.id)
@@ -133,6 +85,12 @@ function isOverdue(flow: FundFlowOut): boolean {
   if (flow.status !== 'pending' || !flow.due_at) return false
   return new Date(flow.due_at).getTime() < Date.now()
 }
+
+/** 搜索或状态筛选变化都必须回到第 1 页，否则会停在越界页看到空表。 */
+watch([search, statusFilter], () => {
+  page.value = 1
+  void loadFlows()
+})
 
 onMounted(async () => {
   await Promise.all([loadContacts(), loadFlows()])
@@ -155,9 +113,8 @@ onMounted(async () => {
         placeholder="搜索说明…"
         clearable
         class="crm-search"
-        @update:model-value="loadFlows"
       />
-      <el-radio-group v-model="statusFilter" @update:model-value="loadFlows">
+      <el-radio-group v-model="statusFilter">
         <el-radio-button value="pending">未结清</el-radio-button>
         <el-radio-button value="settled">已结清</el-radio-button>
         <el-radio-button value="all">全部</el-radio-button>
@@ -231,75 +188,24 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-dialog
-      v-model="showDialog"
-      width="480px"
-      :title="editingId === null ? '记一笔资金往来' : '编辑记录'"
-      destroy-on-close
-    >
-      <el-form label-position="top">
-        <el-form-item label="方向">
-          <el-radio-group v-model="form.direction">
-            <el-radio-button value="out">流出（借出/支出）</el-radio-button>
-            <el-radio-button value="in">流入（借入/收到）</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="类别">
-          <el-radio-group v-model="form.category">
-            <el-radio-button value="loan">借款</el-radio-button>
-            <el-radio-button value="repayment">还款</el-radio-button>
-            <el-radio-button value="gift_money">礼金</el-radio-button>
-            <el-radio-button value="other">其他</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="对象联系人">
-          <el-select v-model="form.contact_id" filterable clearable placeholder="选填">
-            <el-option
-              v-for="opt in options"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="金额（元）" required>
-          <el-input v-model="form.amount" placeholder="如 2000.00" />
-        </el-form-item>
-        <el-form-item label="发生日期" required>
-          <el-date-picker
-            v-model="form.occurred_at"
-            type="date"
-            value-format="YYYY-MM-DD"
-            class="full"
-          />
-        </el-form-item>
-        <el-form-item label="应收/应还日（借贷类填写后自动进入未结清）">
-          <el-date-picker
-            v-model="form.due_at"
-            type="date"
-            value-format="YYYY-MM-DD"
-            clearable
-            class="full"
-          />
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="选填" />
-        </el-form-item>
-        <el-form-item label="家人可见（关闭则仅自己可见）">
-          <el-switch v-model="form.visibility" active-value="family" inactive-value="private" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button text @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!form.amount.trim()" @click="submit">
-          保存
-        </el-button>
-      </template>
-    </el-dialog>
+    <el-pagination
+      v-model:current-page="page"
+      :page-size="PAGE_SIZE"
+      :total="total"
+      layout="prev, pager, next, total"
+      class="pager"
+      @current-change="loadFlows"
+    />
+
+    <FundFormDialog v-model:visible="dialogVisible" :flow="editingFlow" @saved="loadFlows" />
   </div>
 </template>
 
 <style scoped>
+.pager {
+  margin-top: 14px;
+  justify-content: flex-end;
+}
 /* 表格卡片化：与名册表同一容器质感（底色 + 细线 + 浮动圆角） */
 .roster-table {
   background: var(--crm-canvas);
