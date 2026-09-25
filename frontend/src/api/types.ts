@@ -366,6 +366,20 @@ export interface ImageRefIn {
   temp_path?: string
 }
 
+/** 联系人往来的归一记录：三源（活动/资金/礼物）在时间线里统一按这个形状渲染 */
+export interface TimelineRecord {
+  id: number
+  occurredAt: string | null
+  title: string
+  summary: string | null
+  amount: string | null
+  direction: string | null
+  extraLabel: string | null
+  ownerUserId: number
+  /** 活动封面图 id（资金/礼物没有图片，恒为 null） */
+  coverImageId: number | null
+}
+
 /** 分页列表契约：items 为响应体，total 来自 X-Total-Count 响应头 */
 export interface Paged<T> {
   items: T[]
