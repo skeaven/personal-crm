@@ -293,14 +293,20 @@ async def test_update_activity_rejects_foreign_image_id(client, login_headers, m
     mine = (
         await client.post(
             "/api/v1/records/activities",
-            json={"title": "我的活动", "images": [{"temp_path": await _temp_path(client, headers_x, "m.jpg")}]},
+            json={
+                "title": "我的活动",
+                "images": [{"temp_path": await _temp_path(client, headers_x, "m.jpg")}],
+            },
             headers=headers_x,
         )
     ).json()
     theirs = (
         await client.post(
             "/api/v1/records/activities",
-            json={"title": "他的活动", "images": [{"temp_path": await _temp_path(client, headers_y, "t.jpg")}]},
+            json={
+                "title": "他的活动",
+                "images": [{"temp_path": await _temp_path(client, headers_y, "t.jpg")}],
+            },
             headers=headers_y,
         )
     ).json()
@@ -322,14 +328,17 @@ async def test_delete_activity_removes_image_files(client, login_headers, make_u
     created = (
         await client.post(
             "/api/v1/records/activities",
-            json={"title": "待删", "images": [{"temp_path": await _temp_path(client, headers, "d.jpg")}]},
+            json={
+                "title": "待删",
+                "images": [{"temp_path": await _temp_path(client, headers, "d.jpg")}],
+            },
             headers=headers,
         )
     ).json()
     activity_id = created["id"]
 
-    from app.modules.records.models import ActivityImage
     from app.core.db import get_session_factory
+    from app.modules.records.models import ActivityImage
 
     factory = get_session_factory()
     async with factory() as session:
