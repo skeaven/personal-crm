@@ -1,23 +1,36 @@
 <script setup lang="ts">
-/** 活动页：社交活动列表（搜索）+ 新建/编辑抽屉（时间/地点/参与者多选）。 */
-import { onMounted, ref } from 'vue'
+/** 活动页：社交活动列表（搜索 + 页码分页）+ 共享表单弹窗（与详情页往来 Tab 同组件）。 */
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { activitiesApi } from '@/api/records'
 import { ApiError } from '@/api/client'
 import type { ActivityOut } from '@/api/types'
 import { useContactOptions } from '@/composables/useContactOptions'
+import ActivityFormDialog from '@/components/ActivityFormDialog.vue'
 
-const { options, load: loadContacts, nameOf } = useContactOptions()
+const { load: loadContacts, nameOf } = useContactOptions()
 
+const PAGE_SIZE = 20
 const loading = ref(false)
 const search = ref('')
 const activities = ref<ActivityOut[]>([])
+const page = ref(1)
+const total = ref(0)
 
-/** 拉取活动列表（标题/地点关键字搜索由后端执行）。 */
+const dialogVisible = ref(false)
+const editingActivity = ref<ActivityOut | null>(null)
+
+/** 拉取当前页（关键字搜索由后端执行；总数用于页码）。 */
 async function loadActivities(): Promise<void> {
   loading.value = true
   try {
-    activities.value = await activitiesApi.list({ search: search.value || undefined })
+    const { items, total: count } = await activitiesApi.list({
+      search: search.value || undefined,
+      limit: PAGE_SIZE,
+      offset: (page.value - 1) * PAGE_SIZE,
+    })
+    activities.value = items
+    total.value = count
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) ElMessage.error('活动加载失败')
   } finally {
@@ -25,69 +38,16 @@ async function loadActivities(): Promise<void> {
   }
 }
 
-// ---- 抽屉表单（新建与编辑共用） ----
-const showDialog = ref(false)
-const saving = ref(false)
-const editingId = ref<number | null>(null)
-const form = ref(emptyForm())
-
-function emptyForm() {
-  return {
-    title: '',
-    occurred_at: null as number | null,
-    location: '',
-    detail: '',
-    participant_ids: [] as number[],
-    visibility: 'family' as 'family' | 'private',
-  }
-}
-
-/** 打开新建抽屉（清空表单）。 */
+/** 打开新建弹窗。 */
 function openCreate(): void {
-  editingId.value = null
-  form.value = emptyForm()
-  showDialog.value = true
+  editingActivity.value = null
+  dialogVisible.value = true
 }
 
-/** 打开编辑抽屉（回填活动数据；时间转时间戳供日期控件使用）。 */
+/** 打开编辑弹窗（与详情页「查看详情」是同一个组件）。 */
 function openEdit(activity: ActivityOut): void {
-  editingId.value = activity.id
-  form.value = {
-    title: activity.title,
-    occurred_at: activity.occurred_at ? new Date(activity.occurred_at).getTime() : null,
-    location: activity.location ?? '',
-    detail: activity.detail ?? '',
-    participant_ids: [...activity.participant_ids],
-    visibility: activity.visibility,
-  }
-  showDialog.value = true
-}
-
-/** 提交表单：时间戳转 ISO 后按新建/编辑分流。 */
-async function submit(): Promise<void> {
-  saving.value = true
-  try {
-    const payload = {
-      title: form.value.title,
-      occurred_at: form.value.occurred_at ? new Date(form.value.occurred_at).toISOString() : null,
-      location: form.value.location || null,
-      detail: form.value.detail || null,
-      participant_ids: form.value.participant_ids,
-    }
-    if (editingId.value === null) {
-      await activitiesApi.create(payload)
-      ElMessage.success('活动已记录')
-    } else {
-      await activitiesApi.update(editingId.value, payload)
-      ElMessage.success('活动已更新')
-    }
-    showDialog.value = false
-    await loadActivities()
-  } catch (error) {
-    ElMessage.error(error instanceof ApiError ? error.message : '保存失败')
-  } finally {
-    saving.value = false
-  }
+  editingActivity.value = activity
+  dialogVisible.value = true
 }
 
 /** 删除活动（仅所有者，后端校验）。 */
@@ -107,6 +67,12 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
 }
 
+/** 搜索词变化必须回到第 1 页，否则会停在越界页看到空表。 */
+watch(search, () => {
+  page.value = 1
+  void loadActivities()
+})
+
 onMounted(async () => {
   await Promise.all([loadContacts(), loadActivities()])
 })
@@ -117,7 +83,7 @@ onMounted(async () => {
     <header class="crm-page-head">
       <div>
         <h1 class="crm-page-title crm-display">活 动</h1>
-        <p class="crm-page-sub">共 {{ activities.length }} 次 · 和谁、在哪、什么时候</p>
+        <p class="crm-page-sub">共 {{ total }} 次 · 和谁、在哪、什么时候</p>
       </div>
       <el-button type="primary" @click="openCreate">记一次活动</el-button>
     </header>
@@ -128,11 +94,15 @@ onMounted(async () => {
         placeholder="搜索标题、地点…"
         clearable
         class="crm-search"
-        @input="loadActivities"
       />
     </div>
 
-    <el-table v-loading="loading" :data="activities" class="roster-table" empty-text="还没有活动记录">
+    <el-table
+      v-loading="loading"
+      :data="activities"
+      class="roster-table"
+      empty-text="还没有活动记录"
+    >
       <el-table-column label="时间" width="120">
         <template #default="{ row }">{{ formatDate(row.occurred_at) }}</template>
       </el-table-column>
@@ -141,6 +111,7 @@ onMounted(async () => {
           <div class="title-line">
             <span class="title">{{ row.title }}</span>
             <el-tag v-if="row.visibility === 'private'" size="small" type="danger">私密</el-tag>
+            <el-tag v-if="row.images.length" size="small">{{ row.images.length }} 图</el-tag>
           </div>
         </template>
       </el-table-column>
@@ -170,47 +141,20 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-dialog
-      v-model="showDialog"
-      width="480px"
-      :title="editingId === null ? '记一次活动' : '编辑活动'"
-      destroy-on-close
-    >
-      <el-form label-position="top">
-        <el-form-item label="标题" required>
-          <el-input v-model="form.title" placeholder="如：家庭团圆饭" />
-        </el-form-item>
-        <el-form-item label="时间">
-          <!-- value-format="x"：模型保持毫秒时间戳（number），与原 n-date-picker 语义一致 -->
-          <el-date-picker v-model="form.occurred_at" type="datetime" value-format="x" clearable class="full" />
-        </el-form-item>
-        <el-form-item label="地点">
-          <el-input v-model="form.location" placeholder="选填" />
-        </el-form-item>
-        <el-form-item label="参与的人">
-          <el-select
-            v-model="form.participant_ids"
-            multiple
-            filterable
-            placeholder="从名册选择（可多选）"
-          >
-            <el-option v-for="opt in options" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="详情">
-          <el-input v-model="form.detail" type="textarea" :rows="3" placeholder="发生了什么、聊了什么（选填）" />
-        </el-form-item>
-        <el-form-item label="家人可见（关闭则仅自己可见）">
-          <el-switch v-model="form.visibility" active-value="family" inactive-value="private" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button text @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
-          保存
-        </el-button>
-      </template>
-    </el-dialog>
+    <el-pagination
+      v-model:current-page="page"
+      :page-size="PAGE_SIZE"
+      :total="total"
+      layout="prev, pager, next, total"
+      class="pager"
+      @current-change="loadActivities"
+    />
+
+    <ActivityFormDialog
+      v-model:visible="dialogVisible"
+      :activity="editingActivity"
+      @saved="loadActivities"
+    />
   </div>
 </template>
 
@@ -229,7 +173,8 @@ onMounted(async () => {
   font-size: 16px;
   font-weight: 500;
 }
-.full {
-  width: 100%;
+.pager {
+  margin-top: 14px;
+  justify-content: flex-end;
 }
 </style>
