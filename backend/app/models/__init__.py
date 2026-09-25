@@ -11,5 +11,11 @@ from app.modules.contacts.models import Contact, ImportantDate  # noqa: F401
 from app.modules.funds.models import FundFlow  # noqa: F401
 from app.modules.gifts.models import Gift, WishlistItem  # noqa: F401
 from app.modules.graph.models import Relationship, RelationshipType  # noqa: F401
-from app.modules.records.models import Activity, ActivityParticipant, Note, Task  # noqa: F401
+from app.modules.records.models import (  # noqa: F401
+    Activity,
+    ActivityImage,
+    ActivityParticipant,
+    Note,
+    Task,
+)
 from app.modules.settings.models import AppSetting  # noqa: F401

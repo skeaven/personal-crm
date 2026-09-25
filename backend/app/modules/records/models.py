@@ -2,7 +2,16 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -80,3 +89,23 @@ class ActivityParticipant(Base):
     contact_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("contacts.id"), index=True, comment="参与者联系人"
     )
+
+
+class ActivityImage(Base, TimestampMixin):
+    """活动图片：一个活动多张图，数组顺序即展示顺序（最小 sort_order 为时间线封面）。
+
+    不带 D7 三件套：可见性完全跟随所属活动，与 ActivityParticipant 同一取舍。
+    """
+
+    __tablename__ = "activity_images"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    activity_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("activities.id", ondelete="CASCADE"),
+        index=True,
+        comment="所属活动",
+    )
+    path: Mapped[str] = mapped_column(String(500), comment="正式区相对路径")
+    thumb_path: Mapped[str] = mapped_column(String(500), comment="缩略图相对路径")
+    sort_order: Mapped[int] = mapped_column(Integer, index=True, comment="展示顺序，升序")
