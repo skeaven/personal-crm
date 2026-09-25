@@ -22,12 +22,20 @@ function withQuery(path: string, params: Record<string, string | number | undefi
 }
 
 export const giftsApi = {
-  list: (params?: { search?: string; direction?: GiftDirection; contact_id?: number }) =>
-    api.get<GiftOut[]>(
+  list: (params?: {
+    search?: string
+    direction?: GiftDirection
+    contactId?: number
+    limit?: number
+    offset?: number
+  }) =>
+    api.listPaged<GiftOut>(
       withQuery('/gifts', {
         search: params?.search,
         direction: params?.direction,
-        contact_id: params?.contact_id,
+        contact_id: params?.contactId,
+        limit: params?.limit,
+        offset: params?.offset,
       }),
     ),
   get: (id: number) => api.get<GiftOut>(`/gifts/${id}`),

@@ -24,15 +24,19 @@ export const fundsApi = {
     direction?: FundDirection
     category?: FundCategory
     status?: FundStatus
-    contact_id?: number
+    contactId?: number
+    limit?: number
+    offset?: number
   }) =>
-    api.get<FundFlowOut[]>(
+    api.listPaged<FundFlowOut>(
       withQuery('/funds', {
         search: params?.search,
         direction: params?.direction,
         category: params?.category,
         status: params?.status,
-        contact_id: params?.contact_id,
+        contact_id: params?.contactId,
+        limit: params?.limit,
+        offset: params?.offset,
       }),
     ),
   get: (id: number) => api.get<FundFlowOut>(`/funds/${id}`),

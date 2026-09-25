@@ -351,6 +351,25 @@ export interface ActivityOut {
   created_at: string
   updated_at: string
   participant_ids: number[]
+  images: ActivityImageOut[]
+}
+
+/** 活动图片（响应）：前端拿 id 拼鉴权读取地址 */
+export interface ActivityImageOut {
+  id: number
+  sort_order: number
+}
+
+/** 图片提交项：保留已有图给 id，新增图给 temp_path；数组顺序即展示顺序 */
+export interface ImageRefIn {
+  id?: number
+  temp_path?: string
+}
+
+/** 分页列表契约：items 为响应体，total 来自 X-Total-Count 响应头 */
+export interface Paged<T> {
+  items: T[]
+  total: number
 }
 
 export interface ActivityCreate {
@@ -359,6 +378,7 @@ export interface ActivityCreate {
   location?: string | null
   detail?: string | null
   participant_ids?: number[]
+  images?: ImageRefIn[]
 }
 
 export interface ActivityUpdate {
@@ -367,6 +387,7 @@ export interface ActivityUpdate {
   location?: string | null
   detail?: string | null
   participant_ids?: number[]
+  images?: ImageRefIn[]
 }
 
 export type TaskStatus = 'todo' | 'done' | 'cancelled'

@@ -20,13 +20,25 @@ function withQuery(path: string, params: Record<string, string | number | undefi
 }
 
 export const activitiesApi = {
-  list: (params?: { search?: string }) =>
-    api.get<ActivityOut[]>(withQuery('/records/activities', { search: params?.search })),
+  list: (params?: { search?: string; contactId?: number; limit?: number; offset?: number }) =>
+    api.listPaged<ActivityOut>(
+      withQuery('/records/activities', {
+        search: params?.search,
+        contact_id: params?.contactId,
+        limit: params?.limit,
+        offset: params?.offset,
+      }),
+    ),
   get: (id: number) => api.get<ActivityOut>(`/records/activities/${id}`),
   create: (data: ActivityCreate) => api.post<ActivityOut>('/records/activities', data),
   update: (id: number, data: ActivityUpdate) =>
     api.patch<ActivityOut>(`/records/activities/${id}`, data),
   remove: (id: number) => api.delete<void>(`/records/activities/${id}`),
+}
+
+/** 活动图片的鉴权读取地址（需登录态，经 useAuthedImage 取 blob）。 */
+export function activityImageUrl(imageId: number, size: 'thumb' | 'full' = 'full'): string {
+  return `/records/activities/images/${imageId}?size=${size}`
 }
 
 export const tasksApi = {
