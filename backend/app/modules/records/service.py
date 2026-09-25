@@ -7,26 +7,76 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError, ValidationError
 from app.modules.auth.models import User
 from app.modules.records import repository as records_repo
-from app.modules.records.models import Activity, Task
+from app.modules.records.models import Activity, ActivityImage, Task
 from app.modules.records.schemas import (
     ActivityCreate,
+    ActivityImageOut,
     ActivityOut,
     ActivityUpdate,
+    ImageRefIn,
     TaskCreate,
     TaskOut,
     TaskUpdate,
 )
+from app.services import storage
 from app.services.permission import ensure_can_write
 
 
 def _activity_to_out(
-    activity: Activity, owner_display_name: str, participant_ids: list[int]
+    activity: Activity,
+    owner_display_name: str,
+    participant_ids: list[int],
+    images: list[ActivityImage],
 ) -> ActivityOut:
-    """组装活动输出契约：参与者 id 列表由调用方按可读性过滤后传入。"""
+    """组装活动输出契约：参与者与图片均由调用方查好（可读性/顺序）后传入。"""
     activity.owner_display_name = owner_display_name
     payload = ActivityOut.model_validate(activity)
     payload.participant_ids = participant_ids
+    payload.images = [ActivityImageOut.model_validate(image) for image in images]
     return payload
+
+
+async def _replace_images(
+    db: AsyncSession, user: User, activity_id: int, refs: list[ImageRefIn]
+) -> list[ActivityImage]:
+    """按全量替换语义落图片：refs 顺序即 sort_order，未出现的旧图连同文件删除。
+
+    先做全部纯校验再动盘——否则中途发现非法项时，前面的临时文件已被移走。
+    """
+    existing = {image.id: image for image in await records_repo.list_images(db, activity_id)}
+
+    for ref in refs:
+        if ref.id is not None and ref.id not in existing:
+            raise ValidationError("存在不属于本活动的图片")
+        if ref.temp_path is not None and not storage.is_own_temp_path(ref.temp_path, user.id):
+            raise ValidationError("非法的临时文件路径")
+
+    kept_ids: set[int] = set()
+    for order, ref in enumerate(refs):
+        if ref.id is not None:
+            existing[ref.id].sort_order = order
+            kept_ids.add(ref.id)
+        else:
+            full_path, thumb_path = storage.promote_temp(ref.temp_path, user.id, "activities")
+            db.add(
+                ActivityImage(
+                    activity_id=activity_id,
+                    path=full_path,
+                    thumb_path=thumb_path,
+                    sort_order=order,
+                )
+            )
+
+    removed_paths: list[str] = []
+    for image_id, image in existing.items():
+        if image_id in kept_ids:
+            continue
+        removed_paths.extend([image.path, image.thumb_path])
+        await db.delete(image)
+    storage.defer_delete(db, *removed_paths)
+
+    await db.flush()
+    return await records_repo.list_images(db, activity_id)
 
 
 async def create_activity(
@@ -51,7 +101,8 @@ async def create_activity(
     db.add(activity)
     await db.flush()
     await records_repo.replace_participants(db, activity.id, data.participant_ids)
-    return _activity_to_out(activity, user.display_name, data.participant_ids)
+    images = await _replace_images(db, user, activity.id, data.images)
+    return _activity_to_out(activity, user.display_name, data.participant_ids, images)
 
 
 async def list_activities(
@@ -59,10 +110,15 @@ async def list_activities(
 ) -> list[ActivityOut]:
     """列出可读活动，参与者名单按查看者可读性过滤后回显。"""
     rows = await records_repo.find_readable_activities(db, user, search=search)
+    images_map = await records_repo.list_images_for_activities(
+        db, [activity.id for activity, _ in rows]
+    )
     outputs: list[ActivityOut] = []
     for activity, owner_name in rows:
         ids = await records_repo.list_participant_ids(db, user, activity.id)
-        outputs.append(_activity_to_out(activity, owner_name, ids))
+        outputs.append(
+            _activity_to_out(activity, owner_name, ids, images_map.get(activity.id, []))
+        )
     return outputs
 
 
@@ -71,10 +127,15 @@ async def list_upcoming_activities(
 ) -> list[ActivityOut]:
     """列出该时刻之后的活动（待办聚合用；过去活动是历史，不属于任何待办桶）。"""
     rows = await records_repo.find_readable_activities(db, user, from_time=from_time)
+    images_map = await records_repo.list_images_for_activities(
+        db, [activity.id for activity, _ in rows]
+    )
     outputs: list[ActivityOut] = []
     for activity, owner_name in rows:
         ids = await records_repo.list_participant_ids(db, user, activity.id)
-        outputs.append(_activity_to_out(activity, owner_name, ids))
+        outputs.append(
+            _activity_to_out(activity, owner_name, ids, images_map.get(activity.id, []))
+        )
     return outputs
 
 
@@ -83,10 +144,15 @@ async def list_contact_activities(
 ) -> list[ActivityOut]:
     """联系人活动时间线源（作为参与者的活动，全量、时间降序；归并由聚合层完成）。"""
     rows = await records_repo.find_contact_activities(db, user, contact_id=contact_id)
+    images_map = await records_repo.list_images_for_activities(
+        db, [activity.id for activity, _ in rows]
+    )
     outputs: list[ActivityOut] = []
     for activity, owner_name in rows:
         ids = await records_repo.list_participant_ids(db, user, activity.id)
-        outputs.append(_activity_to_out(activity, owner_name, ids))
+        outputs.append(
+            _activity_to_out(activity, owner_name, ids, images_map.get(activity.id, []))
+        )
     return outputs
 
 
@@ -97,7 +163,8 @@ async def get_activity(db: AsyncSession, user: User, activity_id: int) -> Activi
         raise NotFoundError("活动不存在")
     owner = await db.get(User, activity.owner_user_id)
     ids = await records_repo.list_participant_ids(db, user, activity.id)
-    return _activity_to_out(activity, owner.display_name if owner else "未知", ids)
+    images = await records_repo.list_images(db, activity.id)
+    return _activity_to_out(activity, owner.display_name if owner else "未知", ids, images)
 
 
 async def update_activity(
@@ -117,7 +184,7 @@ async def update_activity(
         if missing:
             raise ValidationError("存在不可见的参与者联系人，请检查后重试")
 
-    updates = data.model_dump(exclude={"participant_ids"}, exclude_unset=True)
+    updates = data.model_dump(exclude={"participant_ids", "images"}, exclude_unset=True)
     for field, value in updates.items():
         setattr(activity, field, value)
     await db.flush()
@@ -125,9 +192,12 @@ async def update_activity(
 
     if "participant_ids" in data.model_fields_set:
         await records_repo.replace_participants(db, activity.id, data.participant_ids)
+    if data.images is not None:
+        await _replace_images(db, user, activity.id, data.images)
 
     ids = await records_repo.list_participant_ids(db, user, activity.id)
-    return _activity_to_out(activity, user.display_name, ids)
+    images = await records_repo.list_images(db, activity.id)
+    return _activity_to_out(activity, user.display_name, ids, images)
 
 
 async def get_activity_image_path(
@@ -147,11 +217,16 @@ async def get_activity_image_path(
 
 
 async def delete_activity(db: AsyncSession, user: User, activity_id: int) -> None:
-    """删除活动（仅所有者）；参与者行随活动级联清理。"""
+    """删除活动（仅所有者）；图片行随活动级联删，文件在事务提交成功后删。"""
     activity = await records_repo.get_readable_activity(db, user, activity_id)
     if activity is None:
         raise NotFoundError("活动不存在")
     ensure_can_write(user, activity)
+
+    images = await records_repo.list_images(db, activity_id)
+    storage.defer_delete(
+        db, *[path for image in images for path in (image.path, image.thumb_path)]
+    )
     await db.delete(activity)
     await db.flush()
 

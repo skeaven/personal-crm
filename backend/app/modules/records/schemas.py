@@ -9,6 +9,32 @@ from app.modules.records.models import TASK_STATUS_VALUES
 # 参与者名单容量上限：家庭聚会量级（几十人）足够，同时防御误传超长列表
 MAX_PARTICIPANTS = 50
 
+# 每个活动的图片上限：家庭相册量级足够，同时防御超长列表
+MAX_IMAGES = 20
+
+
+class ImageRefIn(BaseModel):
+    """图片提交项：保留已有图给 id，新增图给 temp_path；数组顺序即展示顺序。"""
+
+    id: int | None = None
+    temp_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_exactly_one(self) -> "ImageRefIn":
+        """id 与 temp_path 必须恰好提供一个，消除"两个都给"的歧义。"""
+        if (self.id is None) == (self.temp_path is None):
+            raise ValueError("图片项必须且只能给 id 或 temp_path 之一")
+        return self
+
+
+class ActivityImageOut(BaseModel):
+    """活动图片输出：前端拿 id 拼鉴权读取地址，按 sort_order 升序展示。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sort_order: int
+
 
 class ParticipantIn(BaseModel):
     """参与者名单字段：联系人 id 列表，去重由数据库唯一约束兜底。"""
@@ -24,6 +50,7 @@ class ActivityCreate(BaseModel):
     location: str | None = Field(default=None, max_length=200)
     detail: str | None = None
     participant_ids: list[int] = Field(default_factory=list, max_length=MAX_PARTICIPANTS)
+    images: list[ImageRefIn] = Field(default_factory=list, max_length=MAX_IMAGES)
 
 
 class ActivityUpdate(ParticipantIn):
@@ -33,6 +60,7 @@ class ActivityUpdate(ParticipantIn):
     occurred_at: datetime | None = None
     location: str | None = Field(default=None, max_length=200)
     detail: str | None = None
+    images: list[ImageRefIn] | None = Field(default=None, max_length=MAX_IMAGES)
 
     @model_validator(mode="after")
     def validate_any_change(self) -> "ActivityUpdate":
@@ -59,6 +87,7 @@ class ActivityOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     participant_ids: list[int] = []
+    images: list[ActivityImageOut] = []
 
 
 class TaskCreate(BaseModel):

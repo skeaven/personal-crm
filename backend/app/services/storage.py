@@ -70,13 +70,21 @@ def save_temp(user_id: int, filename: str, content: bytes) -> str:
     return relative_path
 
 
+def is_own_temp_path(temp_path: str, user_id: int) -> bool:
+    """判断路径是否位于该用户的临时区（纯字符串校验，不落盘）。
+
+    提交表单时先用它整体校验，避免部分文件已移动后才发现非法项。
+    """
+    return temp_path.strip().lstrip("/").startswith(f"tmp/{user_id}/")
+
+
 def promote_temp(temp_path: str, user_id: int, kind: str) -> tuple[str, str]:
     """把临时文件移入正式区并生成缩略图，返回 (正式路径, 缩略图路径)。
 
     temp_path 必须位于该用户的临时区，否则拒绝——防止把他人临时文件认领进自己的记录。
     """
     normalized = temp_path.strip().lstrip("/")
-    if not normalized.startswith(f"tmp/{user_id}/"):
+    if not is_own_temp_path(temp_path, user_id):
         raise ValidationError("非法的临时文件路径")
 
     source = resolve_within_root(normalized)
