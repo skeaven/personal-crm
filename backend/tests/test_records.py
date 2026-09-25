@@ -208,3 +208,36 @@ async def test_task_visibility_and_permissions(client, make_user, login_headers)
     assert forbidden.status_code == 403
     hidden = await client.get(f"/api/v1/records/tasks/{private_task.id}", headers=tong_headers)
     assert hidden.status_code == 404
+
+
+async def test_list_activities_filters_by_contact(client, login_headers, make_user, db_session):
+    """按 contact_id 过滤只返回该联系人作为参与者的活动。"""
+    from app.modules.contacts.models import Contact
+    from app.modules.records.models import Activity, ActivityParticipant
+
+    user, _ = await make_user(username="filter_user", password="pw12345678")
+    headers = await login_headers("filter_user", "pw12345678")
+    dad = Contact(last_name="陈", first_name="爸", owner_user_id=user.id, family_id=user.family_id)
+    mom = Contact(last_name="李", first_name="妈", owner_user_id=user.id, family_id=user.family_id)
+    db_session.add_all([dad, mom])
+    await db_session.flush()
+    with_dad = Activity(title="陪爸钓鱼", owner_user_id=user.id, family_id=user.family_id)
+    with_mom = Activity(title="陪妈买菜", owner_user_id=user.id, family_id=user.family_id)
+    db_session.add_all([with_dad, with_mom])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ActivityParticipant(activity_id=with_dad.id, contact_id=dad.id),
+            ActivityParticipant(activity_id=with_mom.id, contact_id=mom.id),
+        ]
+    )
+    # 必须 commit：db_session 与 HTTP 请求（get_db）是两个独立会话
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/records/activities?contact_id={dad.id}", headers=headers
+    )
+
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json()]
+    assert titles == ["陪爸钓鱼"]

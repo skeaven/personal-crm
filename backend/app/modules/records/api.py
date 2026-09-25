@@ -25,11 +25,14 @@ router = APIRouter(prefix="/records", tags=["records"])
 @router.get("/activities", response_model=list[ActivityOut])
 async def list_activities(
     search: str | None = None,
+    contact_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ActivityOut]:
-    """活动列表（新→旧），支持标题/地点关键字搜索；参与者按查看者可读性过滤。"""
-    return await records_service.list_activities(db, current_user, search=search)
+    """活动列表（新→旧），支持标题/地点搜索与按参与者联系人过滤。"""
+    return await records_service.list_activities(
+        db, current_user, search=search, contact_id=contact_id
+    )
 
 
 @router.post("/activities", response_model=ActivityOut)

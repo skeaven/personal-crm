@@ -17,22 +17,32 @@ async def find_readable_activities(
     *,
     search: str | None = None,
     from_time: datetime | None = None,
+    contact_id: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[tuple[Activity, str]]:
     """按读取范围查活动列表，返回 (活动, 所有者展示名) 行。
 
-    search 模糊匹配标题与地点；from_time 只取该时刻之后的活动（待办聚合用）。
+    search 模糊匹配标题与地点；from_time 只取该时刻之后的活动（待办聚合用）；
+    contact_id 只取该联系人作为参与者的活动（联系人往来 Tab 用）。
     """
     stmt = (
         select(Activity, User.display_name.label("owner_display_name"))
         .join(User, User.id == Activity.owner_user_id)
         .where(Activity.is_active.is_(True), readable_condition(Activity, user))
     )
+    if contact_id is not None:
+        stmt = stmt.join(
+            ActivityParticipant, ActivityParticipant.activity_id == Activity.id
+        ).where(ActivityParticipant.contact_id == contact_id)
     if search:
         pattern = f"%{search.strip()}%"
         stmt = stmt.where(Activity.title.ilike(pattern) | Activity.location.ilike(pattern))
     if from_time is not None:
         stmt = stmt.where(Activity.occurred_at >= from_time)
     stmt = stmt.order_by(Activity.occurred_at.desc().nulls_last(), Activity.id.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     return list((await db.execute(stmt)).all())
 
 

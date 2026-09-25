@@ -106,10 +106,18 @@ async def create_activity(
 
 
 async def list_activities(
-    db: AsyncSession, user: User, *, search: str | None
+    db: AsyncSession,
+    user: User,
+    *,
+    search: str | None,
+    contact_id: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[ActivityOut]:
-    """列出可读活动，参与者名单按查看者可读性过滤后回显。"""
-    rows = await records_repo.find_readable_activities(db, user, search=search)
+    """列出可读活动；contact_id 用于联系人往来 Tab，limit/offset 用于分页。"""
+    rows = await records_repo.find_readable_activities(
+        db, user, search=search, contact_id=contact_id, limit=limit, offset=offset
+    )
     images_map = await records_repo.list_images_for_activities(
         db, [activity.id for activity, _ in rows]
     )
