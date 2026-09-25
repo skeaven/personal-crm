@@ -21,7 +21,7 @@
 | D7 | 权限模型：所有者写入隔离 + 可见性共享读取（家庭内只读），从简不做复杂 ACL | ✅ | 2026-09-20 |
 | D8 | 农历支持方案：lunar-python（后端纯函数封装） | ✅ | 2026-09-21 |
 | D9 | Monica 数据迁移 ETL 方案 | ⬜ | — |
-| D10 | 附件/照片存储（本地卷 vs S3 兼容） | ⬜ | — |
+| D10 | 附件/照片存储：**本地卷**（配置项 `UPLOAD_DIR` + compose named volume），DB 只存相对路径 | ✅ | 2026-09-25 |
 | D11 | **MCP 工具架构**：FastAPI 内 `/mcp` 前缀，Streamable HTTP，内外部 agent 共用同一工具清单与权限 | ✅ | 2026-09-20 |
 | D12 | 模块治理：原子模块清单与依赖规则，事实源 `ARCHITECTURE.md`（先登记后实现） | ✅ | 2026-09-21 |
 | D13 | 前端栈切换：Naive UI → **Element Plus**、图表框架 **ECharts**、关系图 **echarts-gl graphGL**（G6/3d-force-graph 移除）、新增 **geo** 模块与地图页 | ✅ | 2026-09-22 |
@@ -29,6 +29,8 @@
 | D15 | 关系角色化：客观单边 + from_role/to_role/status，账号绑定联系人，登录视角动态推导，kinship 规则引擎出中文称谓与辈分 | ✅ | 2026-09-22 |
 | D16 | **数据录入形态**：表单统一 `el-dialog` 居中弹窗（480px），弃用右侧抽屉；长表单窗内滚动 | ✅ | 2026-09-25 |
 | D17 | **页面内容宽统一**：唯一口径 `.crm-page`（100% + 1080px 上限居中），画布型布局页 `.crm-page--full` 豁免 | ✅ | 2026-09-25 |
+| D18 | **图片存储与两阶段上传**：临时区→正式区，表单 JSON 携带路径；读取走鉴权端点；缩略图 400px | ✅ | 2026-09-25 |
+| D19 | **联系人往来 Tabs 化**：三 Tab 各自分页，前端不再用聚合接口（保留给 AI 工具）；列表接口 limit 默认 20 | ✅ | 2026-09-25 |
 
 ---
 
@@ -240,3 +242,29 @@
   4. 详情页原 80% 阅读列口径取消，与全站统一（用户 2026-09-25 选择"100% + 1080 上限居中"，并确认画布型页面不在统一范围内）。
 - **理由**：宽度是跨页面的共享视觉口径，留在各页 scoped 里必然再次漂移；一处定义后改口径只改一行。
 - **影响**：新增全局原语 `.crm-page--full`；`design/style.css` 的 `:root` 补上 `--crm-content-max-width`；DESIGN.md 布局节同步改写。
+
+---
+
+## D18 图片存储与两阶段上传 ✅（2026-09-25，落实 D10）
+
+- **背景**：活动需要多图（首图为时间线封面），而 D10「附件/照片存储」长期未决。
+- **决策**：
+  1. **本地卷存储**：根目录由 `UPLOAD_DIR` 配置（开发为 `backend/uploads`，容器内 `/app/uploads` + compose named volume）；**DB 只存相对路径**，换环境不改数据。唯一实现点是 `app/services/storage.py`（L0 横切、无表无状态）。
+  2. **两阶段上传**：先 `POST /uploads/temp` 落到 `tmp/{user_id}/` 拿相对路径 → 表单提交时 JSON body 携带这些路径 → 保存时才 `promote_temp` 移入正式区并生成缩略图。一次提交保持原子，不会出现「活动建好了图没传上」。
+  3. **读取走鉴权端点**：`GET /records/activities/images/{id}?size=thumb|full` 复用活动可见性判权；不做静态挂载、不靠 UUID 保密。临时区文件仅上传者本人可读。
+  4. **提交侧三重校验**：`temp_path` 必须在该用户临时区内、保留项 `id` 必须属于本活动、路径归一化后必须落在 `UPLOAD_DIR` 内；先全部纯校验再动盘。
+  5. **文件删除在事务提交之后**：`storage.defer_delete()` 登记、session 的 `after_commit` 事件真正删盘——提交失败回滚时若文件已删，DB 会留下指向不存在文件的坏行。
+  6. 缩略图长边 400px（Pillow 12.3.0，新增依赖）；jpg/png/webp、单张 ≤10MB、每活动 ≤20 张；**HEIC 不支持**。
+- **理由**：家庭自托管场景本地卷最自然、备份即拷目录；两阶段上传让提交保持单一 JSON 契约（沿用全站 application/json）。
+- **影响**：`activity_images` 表归 records；`app/services/storage.py` 与 `app/modules/uploads/` 登记进 `ARCHITECTURE.md`。
+
+## D19 联系人往来 Tabs 化 ✅（2026-09-25，用户指令）
+
+- **背景**：往来区原为 dashboard 聚合接口（`GET /contacts/{id}/timeline`）一次性返回三源全量、前端切片渐现，不支持真分页。
+- **决策**：
+  1. 往来区拆成**活动 / 资金往来 / 礼物往来三个 Tab**，各自调用本模块的分页列表接口（`contact_id` + `limit` + `offset`），支持滚动加载更多。
+  2. **聚合接口与 `build_contact_timeline` 保留**——它仍是 AI 工具 `get_contact_timeline` 的能力面；前端不再调用即可（用户原意是去掉前端的聚合依赖，无需删后端能力）。
+  3. 列表接口统一 `limit` 默认 20、上限 200，**不存在「不传即全量」的旁路**；响应体仍是数组，总数走 `X-Total-Count` 响应头（不破坏既有契约）。该默认只作用于 HTTP 层，service 的 `limit=None` 仍表示不分页，故 AI 工具与主页聚合不受影响。
+  4. 分页用 offset（代码里标了升级到 keyset 的路径）。
+- **理由**：拆 Tab 后每个 Tab 是单类型查询，排序与分页直接复用各模块既有 repository，不需要新的聚合口径。
+- **影响**：`GET /records/activities` 补 `contact_id`（三个接口里唯一缺的）；前端 `dashboardApi.timeline` 不再使用；三个列表页与详情页共用同一套表单弹窗组件。

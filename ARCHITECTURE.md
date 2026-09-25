@@ -15,6 +15,8 @@
 |---|---|---|---|---|---|
 | L0 地基 | core | `app/core/` | — | 配置、引擎/会话、错误类型、密码/JWT；mixins（D7 三件套载体） | ✅ |
 | L0 横切 | permission | `app/services/permission.py` | — | 全系统唯一判权点（D7/D11 红线），REST/MCP/内部 agent 共用 | ✅ |
+| L0 横切 | storage | `app/services/storage.py` | — | **文件存储唯一实现点**（临时区/正式区/缩略图/路径安全，D18）；配置注入、无表无状态；文件删除经 `defer_delete` 延到事务提交后 | ✅ |
+| L0 横切 | uploads | `app/modules/uploads/` | — | 通用临时上传与本人读取端点（无表）；业务图片的鉴权读取归各业务模块 | ✅ |
 | L1 身份 | auth | `app/modules/auth/` | families, users, user_tokens | 注册登录、JWT、家庭组成员、MCP 个人访问令牌 | ✅ |
 | L2 人 | contacts | `app/modules/contacts/` | contacts, important_dates | 名册 CRUD、direct/edge 双层与升级、展示名规则、同名检测、重要日期；**历法引擎 `calendar.py`（纯函数：农历↔公历、下次发生日）随本模块**；**"最近联系时间"口径（只读 join activities）随本模块**；**位置字段**（location 文本 + 坐标缓存列，保存时经 geo 解析，D14） | ✅ |
 | L2 地理 | geo | `app/modules/geo/` | **无表**（坐标缓存列在 contacts） | **纯函数模块**：地理编码 provider（高德 geo + 静态市县区坐标表 `cities.json` 降级，D14）；配置（key）由调用方注入，自身不读表不发状态，可独立测试；地图页数据端点在 contacts 聚合，不经 geo | ✅ |
@@ -71,6 +73,7 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | activity_participants | records | activities（级联删）, contacts |
 | gifts / wishlist_items | gifts | contacts（nullable）；wishlist_items → gifts（converted_gift_id nullable） |
 | fund_flows | funds | contacts（nullable） |
+| activity_images | records | activities（级联删）；**文件**删除由应用层在事务提交后执行 |
 | pending_actions | ai | families, users |
 | embeddings（L4 再建表） | ai | 逻辑引用 entity_type + entity_id，不设硬 FK |
 
@@ -78,10 +81,11 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 
 | 前缀 | 模块 | 端点（现有 / 计划） |
 |---|---|---|
+| /api/v1/uploads | uploads | ✅ `POST /uploads/temp`（上传到临时区）、`GET /uploads/tmp/{user_id}/{filename}`（仅本人可读） |
 | /api/v1/auth | auth | login；计划：me、令牌管理 |
 | /api/v1/contacts | contacts | 列表（tier/search/activity 过滤）、详情、创建、更新、升级、归档、同名检测、重要日期 CRUD（/{id}/dates）；计划：`GET /contacts/map-points`（地图页 choropleth+scatter 数据：坐标点 + 省份计数聚合） |
 | /api/v1/graph | graph | ✅ 关系类型字典（读+自定义新增）、关系边（建/删/视角化列表）、`GET /graph/data`（递归 CTE N 度展开，全图/中心模式） |
-| /api/v1/records | records | ✅ 活动（含参与者全量替换）/任务 CRUD；notes 端点随 L3 收尾 |
+| /api/v1/records | records | ✅ 活动（含参与者与**图片全量替换**，D18）/任务 CRUD；`GET /activities/images/{id}?size=thumb|full`（鉴权读图）；`/activities` 支持 `contact_id`/`limit`/`offset`；notes 端点随 L3 收尾 |
 | /api/v1/gifts | gifts | ✅ 礼物往来 + 愿望清单（`/gifts/wishlist/*`），搜索/过滤/转礼物 |
 | /api/v1/funds | funds | ✅ 资金往来 CRUD + 结清状态机，多维过滤 |
 | /api/v1/dashboard | dashboard | ✅ `GET /dashboard/todos?bucket=`（待办四桶 × 五源聚合）；`GET /contacts/{id}/timeline`（联系人时间线三源全量倒序，路由挂 /contacts 前缀但实现在本聚合模块）；`GET /dashboard/stats`（主页统计卡：总数/近30天/半年未联系/待办数，口径与名册过滤联动） |
@@ -102,7 +106,11 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | 展示名 display_name | `contacts.models.Contact.display_name` 属性 |
 | 农历↔公历、日期下次发生日 | `contacts/calendar.py`（lunar-python 封装） |
 | "最近联系时间"（联系人维度） | contacts repository 的 last_activity 只读子查询；名册过滤（recent_30d/stale_180d）与 dashboard 统计共用同一实现 |
+| 文件存储（临时区/正式区/缩略图/路径安全） | `app/services/storage.py` |
+| 列表分页与总数口径 | 各模块 repository 的 `find_*` 与 `count_*` 成对实现（过滤条件必须一致）；HTTP 层 limit 默认 20、上限 200 |
 | 展示层禁止重复实现以上口径，只消费接口结果 |
+
+- `GET /contacts/{id}/timeline` 聚合接口**保留供 AI 工具 `get_contact_timeline` 使用**；前端往来区已改为按 Tab 分别调用三个列表接口（D19）。
 
 ## 7. 本次主页（dashboard）落点
 

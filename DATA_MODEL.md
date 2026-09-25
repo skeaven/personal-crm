@@ -239,3 +239,17 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 - `ensure_can_write(user, record)` — 非所有者写操作抛 `PermissionDeniedError`（API 层转 403）
 
 REST API、MCP 工具、内部 agent 一律经过它，**禁止其他路径判权**（D11 红线）。
+
+## activity_images（活动图片，D18）
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | BIGINT | PK, autoincrement | |
+| activity_id | BIGINT | FK activities(id) **ON DELETE CASCADE**, index | 所属活动；图片行随活动删除 |
+| path | VARCHAR(500) | NOT NULL | 正式区相对路径，如 `activities/2026/09/<uuid>.jpg` |
+| thumb_path | VARCHAR(500) | NOT NULL | 缩略图相对路径（长边 400px） |
+| sort_order | INTEGER | NOT NULL, index | 展示顺序，升序；**最小者为时间线封面** |
+| created_at / updated_at | TIMESTAMPTZ | server_default now() | TimestampMixin |
+
+不带 D7 三件套：可见性完全跟随所属活动（同 `activity_participants` 的取舍）。
+**文件删除**不在级联里——由 records service 在事务提交后经 `storage.defer_delete` 执行。
