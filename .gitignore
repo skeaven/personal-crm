@@ -18,3 +18,5 @@ frontend/dist/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 *.tsbuildinfo
+# 本地上传文件（运行时数据，不进版本库）
+backend/uploads/

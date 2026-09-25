@@ -23,6 +23,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://crm:crm@db:5432/personal_crm  # 容器网络内仍是 5432，宿主机映射见 db.ports
       JWT_SECRET: ${JWT_SECRET:-please-change-me-in-production}
       DEBUG: "false"
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     ports:
       - "8100:8100"
     depends_on:
@@ -36,3 +39,4 @@ services:
 
 volumes:
   db_data:
+  uploads_data:
