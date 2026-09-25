@@ -35,12 +35,14 @@ const auth = useAuthStore()
 const records = ref<TimelineRecord[]>([])
 const total = ref(0)
 const loading = ref(false)
+// 首次加载前 total 恒为 0，若只看 records.length < total 会把首载也判成「已到底」
+const initialized = ref(false)
 const sentinel = ref<HTMLElement | null>(null)
 const galleryVisible = ref(false)
 const galleryActivityId = ref<number | null>(null)
 let observer: IntersectionObserver | null = null
 
-const hasMore = computed(() => records.value.length < total.value)
+const hasMore = computed(() => !initialized.value || records.value.length < total.value)
 
 /** 活动 → 归一记录（封面取 sort_order 最小的一张）。 */
 function fromActivity(raw: Record<string, unknown>): TimelineRecord {
@@ -112,6 +114,7 @@ async function loadMore(): Promise<void> {
     const page = await fetchPage(records.value.length)
     records.value = [...records.value, ...page.items]
     total.value = page.total
+    initialized.value = true
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) ElMessage.error('往来记录加载失败')
   } finally {
@@ -123,6 +126,7 @@ async function loadMore(): Promise<void> {
 async function reload(): Promise<void> {
   records.value = []
   total.value = 0
+  initialized.value = false
   await loadMore()
 }
 

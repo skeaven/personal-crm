@@ -3,25 +3,33 @@
  * 结构 = 头部 + 静态区（基本信息/重要日期/关系，两列瀑布排布）
  *       + 竖向时间线（礼物/资金/活动倒序，滚动渐现的切片加载）。
  * 后续新数据类型在后端时间线聚合中扩充 source 即可，前端按 source 渲染。 */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { contactsApi } from '@/api/contacts'
 import { graphApi } from '@/api/graph'
-import { dashboardApi } from '@/api/dashboard'
+import { activitiesApi } from '@/api/records'
+import { giftsApi } from '@/api/gifts'
+import { fundsApi } from '@/api/funds'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { tokens } from '@/design/tokens'
 import { toDateInput } from '@/utils/datetime'
 import ContactAvatar from '@/components/ContactAvatar.vue'
+import RecordTimeline from '@/components/RecordTimeline.vue'
+import ActivityFormDialog from '@/components/ActivityFormDialog.vue'
+import GiftFormDialog from '@/components/GiftFormDialog.vue'
+import FundFormDialog from '@/components/FundFormDialog.vue'
 import type {
   ContactDetailOut,
   ImportantDateCreate,
   ImportantDateOut,
   RelationshipOut,
   RelationshipTypeOut,
-  TimelineItemOut,
+  TimelineRecord,
+  TimelineSource,
 } from '@/api/types'
+import type { ActivityOut, FundFlowOut, GiftOut } from '@/api/types'
 import { ROLE_DOMAINS, ROLE_LABELS } from '@/api/types'
 
 const route = useRoute()
@@ -250,66 +258,65 @@ async function removeDate(d: ImportantDateOut): Promise<void> {
   }
 }
 
-// ---- 时间线状态：后端全量返回，前端切片渐现 ----
-const TIMELINE_STEP = 15
-const timelineAll = ref<TimelineItemOut[]>([])
-const timelineVisibleCount = ref(TIMELINE_STEP)
-const timelineSentinel = ref<HTMLDivElement | null>(null)
-let observer: IntersectionObserver | null = null
+// ---- 往来 Tabs：每类各自分页加载，不再依赖 dashboard 聚合接口 ----
+const activeTab = ref<TimelineSource>('activity')
+const timelineRefs = ref<Record<string, { reload: () => Promise<void> } | null>>({})
 
-/** 当前切片：滚动接近底部时逐步放开，形成"向下加载"的观感。 */
-const timelineItems = computed(() => timelineAll.value.slice(0, timelineVisibleCount.value))
-const hasMoreTimeline = computed(() => timelineVisibleCount.value < timelineAll.value.length)
+// 三源共用的表单弹窗（与列表页是同一个组件，行为一致）
+const activityDialogVisible = ref(false)
+const editingActivity = ref<ActivityOut | null>(null)
+const giftDialogVisible = ref(false)
+const editingGift = ref<GiftOut | null>(null)
+const fundDialogVisible = ref(false)
+const editingFlow = ref<FundFlowOut | null>(null)
 
-/** 来源徽标文案与配色（印泥红仅用于资金流出警示）。 */
-const sourceMeta: Record<string, { label: string }> = {
-  gift: { label: '礼物' },
-  fund: { label: '资金' },
-  activity: { label: '活动' },
+/** 打开活动新建弹窗。 */
+function openNewActivity(): void {
+  editingActivity.value = null
+  activityDialogVisible.value = true
 }
 
-/** 金额展示：流出（送出/借出）印泥红，流入墨色，与资金往来页口径一致。 */
-function amountText(item: TimelineItemOut): { text: string; negative: boolean } | null {
-  if (item.amount === null) return null
-  if (item.source === 'gift') {
-    return item.direction === 'given'
-      ? { text: `送出 ¥${item.amount}`, negative: true }
-      : { text: `收到 ¥${item.amount}`, negative: false }
-  }
-  return item.direction === 'out'
-    ? { text: `−¥${item.amount}`, negative: true }
-    : { text: `+¥${item.amount}`, negative: false }
+/** 打开资金新建弹窗。 */
+function openNewFund(): void {
+  editingFlow.value = null
+  fundDialogVisible.value = true
 }
 
-function timelineTime(item: TimelineItemOut): string {
-  return new Date(item.occurred_at).toLocaleDateString('zh-CN')
+/** 打开礼物新建弹窗。 */
+function openNewGift(): void {
+  editingGift.value = null
+  giftDialogVisible.value = true
 }
 
-/** 建立底部哨兵观察：进入视口即放开下一片。 */
-function observeSentinel(): void {
-  observer?.disconnect()
-  if (!timelineSentinel.value) return
-  observer = new IntersectionObserver(
-    (entries) => {
-      if (entries.some((entry) => entry.isIntersecting) && hasMoreTimeline.value) {
-        timelineVisibleCount.value += TIMELINE_STEP
-      }
-    },
-    { rootMargin: '160px' },
-  )
-  observer.observe(timelineSentinel.value)
-}
-
-async function loadTimeline(): Promise<void> {
-  timelineVisibleCount.value = TIMELINE_STEP
+/** 归一记录只带精简字段，详情需完整记录：按 id 拉一次再喂给表单。 */
+async function openRecordDetail(payload: {
+  source: TimelineSource
+  record: TimelineRecord
+}): Promise<void> {
   try {
-    const result = await dashboardApi.timeline(contactId.value)
-    timelineAll.value = result.items
+    if (payload.source === 'activity') {
+      editingActivity.value = await activitiesApi.get(payload.record.id)
+      activityDialogVisible.value = true
+    } else if (payload.source === 'gift') {
+      editingGift.value = await giftsApi.get(payload.record.id)
+      giftDialogVisible.value = true
+    } else {
+      editingFlow.value = await fundsApi.get(payload.record.id)
+      fundDialogVisible.value = true
+    }
   } catch (error) {
-    if (!(error instanceof ApiError && error.status === 401)) timelineAll.value = []
+    ElMessage.error(error instanceof ApiError ? error.message : '打开失败')
   }
-  // 等切片渲染后重新挂观察器（v-if 的哨兵节点会重建）
-  requestAnimationFrame(observeSentinel)
+}
+
+/** 保存后刷新「该记录所属」的 Tab 并切过去。
+ *
+ * 不能用当前激活的 Tab：Tab 标签上的「记一笔」带 @click.stop，点它不会切换 Tab，
+ * 于是在别的 Tab 处于激活态时新建，保存后刷新的会是那个无关的 Tab。
+ */
+async function refreshTab(source: TimelineSource): Promise<void> {
+  activeTab.value = source
+  await timelineRefs.value[source]?.reload()
 }
 
 // ---- 关系区块状态 ----
@@ -430,7 +437,7 @@ async function loadContact(): Promise<void> {
   loading.value = true
   try {
     contact.value = await contactsApi.get(contactId.value)
-    await Promise.all([loadRelations(), loadTimeline()])
+    await loadRelations()
     // el-table 由 v-if+异步数据挂载时容器宽为 0，列宽 fit 计算会崩（表体出现超宽列），
     // 数据与 DOM 就位后强制重排一次
     await nextTick()
@@ -492,7 +499,6 @@ watch(contactId, () => {
   if (!Number.isNaN(contactId.value)) void loadContact()
 })
 
-onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
@@ -639,40 +645,72 @@ onBeforeUnmount(() => observer?.disconnect())
       <section class="block">
         <div class="block-head">
           <h2 class="block-title">往 来</h2>
-          <span class="block-hint">礼物 · 资金 · 活动，按时间倒序</span>
+          <span class="block-hint">活动 · 资金 · 礼物，各按时间倒序</span>
         </div>
-        <el-timeline v-if="timelineAll.length" class="timeline">
-          <!-- naive 的 type="default"（灰色圆点）对应 EP 默认节点色（--el-border-color-light），故省略 type -->
-          <el-timeline-item
-            v-for="item in timelineItems"
-            :key="`${item.source}-${item.ref_id}`"
-            :timestamp="timelineTime(item)"
-            placement="top"
-          >
-            <el-card shadow="always" class="tl-card crm-rise" :body-style="{ padding: '12px 16px' }">
-              <div class="tl-head">
-                <span class="tl-source">{{ sourceMeta[item.source]?.label ?? item.source }}</span>
-                <span class="tl-title">{{ item.title }}</span>
-                <span
-                  v-if="amountText(item)"
-                  class="tl-amount"
-                  :class="{ out: amountText(item)!.negative }"
-                >
-                  {{ amountText(item)!.text }}
-                </span>
-              </div>
-              <div class="tl-meta">
-                <span v-if="item.extra_label">{{ item.extra_label }}</span>
-                <span v-if="item.summary">{{ item.summary }}</span>
-              </div>
-            </el-card>
-          </el-timeline-item>
-        </el-timeline>
-        <p v-else class="relation-empty">还没有往来记录——记一笔礼物、资金或活动吧</p>
-        <div ref="timelineSentinel" class="timeline-sentinel">
-          <span v-if="hasMoreTimeline" class="timeline-loading">继续下滑，加载更早的记录…</span>
-        </div>
+        <el-tabs v-model="activeTab">
+          <el-tab-pane name="activity">
+            <template #label>
+              <span class="tab-label">
+                活动
+                <el-button text size="small" @click.stop="openNewActivity">记一笔</el-button>
+              </span>
+            </template>
+            <RecordTimeline
+              :ref="(el) => (timelineRefs.activity = el as never)"
+              source="activity"
+              :contact-id="contactId"
+              @open-detail="openRecordDetail"
+            />
+          </el-tab-pane>
+          <el-tab-pane name="fund">
+            <template #label>
+              <span class="tab-label">
+                资金往来
+                <el-button text size="small" @click.stop="openNewFund">记一笔</el-button>
+              </span>
+            </template>
+            <RecordTimeline
+              :ref="(el) => (timelineRefs.fund = el as never)"
+              source="fund"
+              :contact-id="contactId"
+              @open-detail="openRecordDetail"
+            />
+          </el-tab-pane>
+          <el-tab-pane name="gift">
+            <template #label>
+              <span class="tab-label">
+                礼物往来
+                <el-button text size="small" @click.stop="openNewGift">记一笔</el-button>
+              </span>
+            </template>
+            <RecordTimeline
+              :ref="(el) => (timelineRefs.gift = el as never)"
+              source="gift"
+              :contact-id="contactId"
+              @open-detail="openRecordDetail"
+            />
+          </el-tab-pane>
+        </el-tabs>
       </section>
+
+      <ActivityFormDialog
+        v-model:visible="activityDialogVisible"
+        :activity="editingActivity"
+        :preset-contact-id="contactId"
+        @saved="refreshTab('activity')"
+      />
+      <GiftFormDialog
+        v-model:visible="giftDialogVisible"
+        :gift="editingGift"
+        :preset-contact-id="contactId"
+        @saved="refreshTab('gift')"
+      />
+      <FundFormDialog
+        v-model:visible="fundDialogVisible"
+        :flow="editingFlow"
+        :preset-contact-id="contactId"
+        @saved="refreshTab('fund')"
+      />
 
       <!-- 编辑资料：官方 el-dialog + el-form（D16 组件化） -->
       <el-dialog v-model="showEditDialog" title="编辑资料" width="480px" destroy-on-close>
@@ -948,63 +986,9 @@ onBeforeUnmount(() => observer?.disconnect())
   color: var(--crm-muted);
   font-size: 13px;
 }
-.timeline {
-  margin-top: 4px;
-}
-.tl-card {
-  margin-bottom: 4px;
-  --el-card-border-radius: var(--crm-radius-control);
-}
-.tl-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.tl-source {
-  color: var(--crm-muted);
-  font-size: 12px;
-  background: var(--crm-bone);
-  border-radius: var(--crm-radius-control);
-  padding: 1px 8px;
-  flex-shrink: 0;
-}
-.tl-title {
-  font-size: 15px;
-  font-weight: 500;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tl-amount {
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-.tl-amount.out {
-  color: var(--crm-seal);
-}
-.tl-meta {
-  display: flex;
-  gap: 10px;
-  color: var(--crm-muted);
-  font-size: 13px;
-  margin-top: 4px;
-}
-.timeline-sentinel {
-  min-height: 32px;
-  display: flex;
-  justify-content: center;
-  padding: 8px 0;
-}
-.timeline-loading {
-  color: var(--crm-muted);
-  font-size: 13px;
-}
-@media (max-width: 720px) {
-  .page {
-    width: 100%;
-  }
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>
