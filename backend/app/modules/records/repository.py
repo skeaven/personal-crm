@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
 from app.modules.contacts.models import Contact
-from app.modules.records.models import Activity, ActivityParticipant, Task
+from app.modules.records.models import Activity, ActivityImage, ActivityParticipant, Task
 from app.services.permission import readable_condition
 
 
@@ -134,3 +134,36 @@ async def filter_readable_contact_ids(
         return set()
     stmt = select(Contact.id).where(Contact.id.in_(contact_ids), readable_condition(Contact, user))
     return set((await db.execute(stmt)).scalars().all())
+
+
+async def get_image(db: AsyncSession, image_id: int) -> ActivityImage | None:
+    """按 id 取图片行（不含判权；判权由 service 依所属活动完成）。"""
+    stmt = select(ActivityImage).where(ActivityImage.id == image_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def list_images(db: AsyncSession, activity_id: int) -> list[ActivityImage]:
+    """取活动的全部图片，按展示顺序升序（最小 sort_order 即时间线封面）。"""
+    stmt = (
+        select(ActivityImage)
+        .where(ActivityImage.activity_id == activity_id)
+        .order_by(ActivityImage.sort_order, ActivityImage.id)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def list_images_for_activities(
+    db: AsyncSession, activity_ids: list[int]
+) -> dict[int, list[ActivityImage]]:
+    """批量取多个活动的图片并按活动分组（列表接口避免 N+1 查询）。"""
+    if not activity_ids:
+        return {}
+    stmt = (
+        select(ActivityImage)
+        .where(ActivityImage.activity_id.in_(activity_ids))
+        .order_by(ActivityImage.sort_order, ActivityImage.id)
+    )
+    grouped: dict[int, list[ActivityImage]] = {}
+    for image in (await db.execute(stmt)).scalars().all():
+        grouped.setdefault(image.activity_id, []).append(image)
+    return grouped

@@ -1,10 +1,12 @@
 """records 模块 API：活动（含参与者）与任务端点。"""
 
 from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
+from app.core.errors import NotFoundError
 from app.modules.auth.models import User
 from app.modules.records import service as records_service
 from app.modules.records.schemas import (
@@ -15,6 +17,7 @@ from app.modules.records.schemas import (
     TaskOut,
     TaskUpdate,
 )
+from app.services import storage
 
 router = APIRouter(prefix="/records", tags=["records"])
 
@@ -37,6 +40,26 @@ async def create_activity(
 ) -> ActivityOut:
     """创建活动（参与者须全部对创建者可读）。"""
     return await records_service.create_activity(db, current_user, body)
+
+
+@router.get("/activities/images/{image_id}")
+async def read_activity_image(
+    image_id: int,
+    size: str = Query(default="full", description="thumb/full"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FileResponse:
+    """按活动可见性鉴权后返回图片文件（需登录态，不做静态挂载）。
+
+    路由必须注册在 /activities/{activity_id} 之前，否则 "images" 会被当成 activity_id。
+    """
+    relative_path = await records_service.get_activity_image_path(
+        db, current_user, image_id, thumb=(size == "thumb")
+    )
+    path = storage.resolve_within_root(relative_path)
+    if not path.is_file():
+        raise NotFoundError("图片不存在")
+    return FileResponse(path)
 
 
 @router.get("/activities/{activity_id}", response_model=ActivityOut)

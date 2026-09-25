@@ -130,6 +130,22 @@ async def update_activity(
     return _activity_to_out(activity, user.display_name, ids)
 
 
+async def get_activity_image_path(
+    db: AsyncSession, user: User, image_id: int, *, thumb: bool
+) -> str:
+    """取活动图片的相对路径；图片所属活动不可读时按 404 处理。
+
+    返回相对路径而不是绝对路径，落盘细节留给 api 层经 storage 解析。
+    """
+    image = await records_repo.get_image(db, image_id)
+    if image is None:
+        raise NotFoundError("图片不存在")
+    activity = await records_repo.get_readable_activity(db, user, image.activity_id)
+    if activity is None:
+        raise NotFoundError("图片不存在")
+    return image.thumb_path if thumb else image.path
+
+
 async def delete_activity(db: AsyncSession, user: User, activity_id: int) -> None:
     """删除活动（仅所有者）；参与者行随活动级联清理。"""
     activity = await records_repo.get_readable_activity(db, user, activity_id)
