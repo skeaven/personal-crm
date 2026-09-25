@@ -137,7 +137,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="crm-page map-page">
+  <div class="crm-page crm-page--full map-page">
     <header class="crm-page-head">
       <div>
         <h1 class="crm-page-title crm-display">地 图</h1>
@@ -158,9 +158,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.map-page {
-  max-width: none;
-}
 .map-hint {
   margin: 0;
   color: var(--crm-muted);

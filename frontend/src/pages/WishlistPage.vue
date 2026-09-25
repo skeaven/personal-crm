@@ -36,7 +36,7 @@ async function loadItems(): Promise<void> {
 }
 
 // ---- 抽屉表单 ----
-const showDrawer = ref(false)
+const showDialog = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = ref(emptyForm())
@@ -56,7 +56,7 @@ function emptyForm() {
 function openCreate(): void {
   editingId.value = null
   form.value = emptyForm()
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 function openEdit(item: WishlistOut): void {
@@ -70,7 +70,7 @@ function openEdit(item: WishlistOut): void {
     description: item.description ?? '',
     visibility: item.visibility,
   }
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 async function submit(): Promise<void> {
@@ -91,7 +91,7 @@ async function submit(): Promise<void> {
       await wishlistApi.update(editingId.value, payload)
       ElMessage.success('愿望已更新')
     }
-    showDrawer.value = false
+    showDialog.value = false
     await loadItems()
   } catch (error) {
     ElMessage.error(error instanceof ApiError ? error.message : '保存失败')
@@ -200,11 +200,11 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-drawer
-      v-model="showDrawer"
-      size="440px"
-      direction="rtl"
+    <el-dialog
+      v-model="showDialog"
+      width="480px"
       :title="editingId === null ? '加一个心愿' : '编辑心愿'"
+      destroy-on-close
     >
       <el-form label-position="top">
         <el-form-item label="想送的礼物" required>
@@ -243,14 +243,12 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <div class="crm-drawer-footer">
-          <el-button text @click="showDrawer = false">取消</el-button>
-          <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
-            保存
-          </el-button>
-        </div>
+        <el-button text @click="showDialog = false">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
+          保存
+        </el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 

@@ -26,7 +26,7 @@ async function loadActivities(): Promise<void> {
 }
 
 // ---- 抽屉表单（新建与编辑共用） ----
-const showDrawer = ref(false)
+const showDialog = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = ref(emptyForm())
@@ -46,7 +46,7 @@ function emptyForm() {
 function openCreate(): void {
   editingId.value = null
   form.value = emptyForm()
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 /** 打开编辑抽屉（回填活动数据；时间转时间戳供日期控件使用）。 */
@@ -60,7 +60,7 @@ function openEdit(activity: ActivityOut): void {
     participant_ids: [...activity.participant_ids],
     visibility: activity.visibility,
   }
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 /** 提交表单：时间戳转 ISO 后按新建/编辑分流。 */
@@ -81,7 +81,7 @@ async function submit(): Promise<void> {
       await activitiesApi.update(editingId.value, payload)
       ElMessage.success('活动已更新')
     }
-    showDrawer.value = false
+    showDialog.value = false
     await loadActivities()
   } catch (error) {
     ElMessage.error(error instanceof ApiError ? error.message : '保存失败')
@@ -170,12 +170,11 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-drawer
-      v-model="showDrawer"
-      size="440px"
-      direction="rtl"
+    <el-dialog
+      v-model="showDialog"
+      width="480px"
       :title="editingId === null ? '记一次活动' : '编辑活动'"
-      :show-close="true"
+      destroy-on-close
     >
       <el-form label-position="top">
         <el-form-item label="标题" required>
@@ -206,14 +205,12 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <div class="crm-drawer-footer">
-          <el-button text @click="showDrawer = false">取消</el-button>
-          <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
-            保存
-          </el-button>
-        </div>
+        <el-button text @click="showDialog = false">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
+          保存
+        </el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 

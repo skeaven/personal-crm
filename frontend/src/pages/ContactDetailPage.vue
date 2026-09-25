@@ -496,7 +496,7 @@ onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
-  <div class="page">
+  <div class="crm-page">
     <!-- naive 的 text-color="#787774" 等值于 tokens.color.muted，改用 token 内联生效 -->
     <el-button
       text
@@ -546,8 +546,6 @@ onBeforeUnmount(() => observer?.disconnect())
         </div>
       </header>
 
-      <div class="static-grid">
-        <div class="static-col">
         <section class="block">
           <h2 class="block-title">基本信息</h2>
           <el-descriptions :column="2" class="info-desc" label-class-name="info-label-cell">
@@ -573,6 +571,37 @@ onBeforeUnmount(() => observer?.disconnect())
               <span v-else>{{ contact.visibility === 'family' ? '家庭可见' : '私密' }}</span>
             </el-descriptions-item>
           </el-descriptions>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2 class="block-title">重要日期</h2>
+            <el-button v-if="isOwned" text @click="openDateCreate">添加日期</el-button>
+          </div>
+
+          <!-- 日期 / 提醒 / 操作 三列；操作列仅所有者渲染 -->
+          <el-table v-if="contact.dates.length" ref="dateTableRef" :data="contact.dates" row-key="id" class="date-table">
+            <el-table-column label="日期" min-width="240">
+              <template #default="{ row }">{{ dateLine(row) }}</template>
+            </el-table-column>
+            <el-table-column label="提醒" min-width="150">
+              <template #default="{ row }">
+                <span class="date-remind">提前 {{ row.reminder_lead_days.join('、') }} 天提醒</span>
+              </template>
+            </el-table-column>
+            <el-table-column v-if="isOwned" label="操作" width="130" align="right">
+              <template #default="{ row }">
+                <el-button text @click="openDateEdit(row)">编辑</el-button>
+                <!-- 问题文本须走 el-popconfirm 的 title 属性（默认插槽不会被渲染）；stop 防触发行级交互 -->
+                <el-popconfirm title="删除这条日期？" @confirm="removeDate(row)">
+                  <template #reference>
+                    <el-button text type="danger" @click.stop>删除</el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+          <p v-else class="block-empty">还没有记录重要日期</p>
         </section>
 
       <section class="block">
@@ -606,41 +635,6 @@ onBeforeUnmount(() => observer?.disconnect())
         </el-table>
         <p v-else class="relation-empty">还没有记录关系，试试从右侧建立一条</p>
       </section>
-
-        </div>
-        <div class="static-col">
-        <section class="block">
-          <div class="block-head">
-            <h2 class="block-title">重要日期</h2>
-            <el-button v-if="isOwned" text @click="openDateCreate">添加日期</el-button>
-          </div>
-
-          <!-- 日期 / 提醒 / 操作 三列；操作列仅所有者渲染 -->
-          <el-table v-if="contact.dates.length" ref="dateTableRef" :data="contact.dates" row-key="id" class="date-table">
-            <el-table-column label="日期" min-width="240">
-              <template #default="{ row }">{{ dateLine(row) }}</template>
-            </el-table-column>
-            <el-table-column label="提醒" min-width="150">
-              <template #default="{ row }">
-                <span class="date-remind">提前 {{ row.reminder_lead_days.join('、') }} 天提醒</span>
-              </template>
-            </el-table-column>
-            <el-table-column v-if="isOwned" label="操作" width="130" align="right">
-              <template #default="{ row }">
-                <el-button text @click="openDateEdit(row)">编辑</el-button>
-                <!-- 问题文本须走 el-popconfirm 的 title 属性（默认插槽不会被渲染）；stop 防触发行级交互 -->
-                <el-popconfirm title="删除这条日期？" @confirm="removeDate(row)">
-                  <template #reference>
-                    <el-button text type="danger" @click.stop>删除</el-button>
-                  </template>
-                </el-popconfirm>
-              </template>
-            </el-table-column>
-          </el-table>
-          <p v-else class="block-empty">还没有记录重要日期</p>
-        </section>
-        </div>
-      </div>
 
       <section class="block">
         <div class="block-head">
@@ -832,9 +826,6 @@ onBeforeUnmount(() => observer?.disconnect())
   font-size: 12px;
   margin-left: 6px;
 }
-.page {
-  max-width: var(--crm-content-max-width, 1080px);
-}
 .back {
   margin-bottom: 18px;
   padding-left: 0;
@@ -953,17 +944,6 @@ onBeforeUnmount(() => observer?.disconnect())
   color: var(--crm-muted);
   font-size: 14px;
 }
-.static-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0 40px;
-}
-.static-col {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-  min-width: 0;
-}
 .block-hint {
   color: var(--crm-muted);
   font-size: 13px;
@@ -1023,8 +1003,8 @@ onBeforeUnmount(() => observer?.disconnect())
   font-size: 13px;
 }
 @media (max-width: 720px) {
-  .static-grid {
-    grid-template-columns: 1fr;
+  .page {
+    width: 100%;
   }
 }
 </style>

@@ -82,7 +82,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="crm-page graph-page">
+  <div class="crm-page crm-page--full graph-page">
     <header class="crm-page-head">
       <div>
         <h1 class="crm-page-title crm-display">关系图谱</h1>
@@ -153,9 +153,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.graph-page {
-  max-width: none;
-}
 .controls {
   display: flex;
   gap: 10px;

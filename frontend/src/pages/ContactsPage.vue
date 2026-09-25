@@ -145,7 +145,7 @@ onMounted(loadContacts)
 </script>
 
 <template>
-  <div class="page">
+  <div class="crm-page">
     <header class="page-head">
       <div>
         <h1 class="page-title crm-display">名 册</h1>
@@ -230,8 +230,8 @@ onMounted(loadContacts)
       <el-button type="primary" @click="showCreate = true">记下一个人</el-button>
     </el-empty>
 
-    <!-- 创建抽屉 -->
-    <el-drawer v-model="showCreate" size="420px" direction="rtl" title="记下一个人">
+    <!-- 创建弹窗 -->
+    <el-dialog v-model="showCreate" width="480px" title="记下一个人" destroy-on-close>
       <!-- naive 原本即 closable，保留 @close 联动清空重复提醒 -->
       <el-alert
         v-if="duplicateWarnings.length"
@@ -283,34 +283,29 @@ onMounted(loadContacts)
       </el-form>
 
       <template #footer>
-        <div class="drawer-footer">
-          <el-button v-if="duplicateWarnings.length" text @click="resetForm(); showCreate = false">
-            取消
-          </el-button>
-          <el-button
-            v-else
-            text
-            @click="showCreate = false"
-          >
-            取消
-          </el-button>
-          <el-button
-            type="primary"
-            :loading="creating"
-            @click="duplicateWarnings.length ? submitCreate(true) : submitCreate(false)"
-          >
-            {{ duplicateWarnings.length ? '仍要记录' : '记 下' }}
-          </el-button>
-        </div>
+        <el-button v-if="duplicateWarnings.length" text @click="resetForm(); showCreate = false">
+          取消
+        </el-button>
+        <el-button
+          v-else
+          text
+          @click="showCreate = false"
+        >
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="creating"
+          @click="duplicateWarnings.length ? submitCreate(true) : submitCreate(false)"
+        >
+          {{ duplicateWarnings.length ? '仍要记录' : '记 下' }}
+        </el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.page {
-  max-width: var(--crm-content-max-width, 1080px);
-}
 .page-head {
   display: flex;
   align-items: flex-end;
@@ -355,10 +350,5 @@ onMounted(loadContacts)
 }
 .dup-item {
   font-size: 13px;
-}
-.drawer-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
 }
 </style>

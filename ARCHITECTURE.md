@@ -92,7 +92,7 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 
 - **页面 ↔ 后端模块一一对应**：`pages/`（HomePage、ContactsPage、ContactDetailPage；L2 GraphPage、L4 SettingsPage/ChatPage）；`api/` 目录与后端模块同名对应（api/dashboard.ts…），契约经 openapi-typescript 生成，前端禁止绕过契约。
 - **组件规范（2026-09-22 用户指令，D13；替代 2026-09-21 的 Naive UI 指令）**：组件框架 = **Element Plus**，图表框架 = **ECharts（锁 5.x）+ echarts-gl**；直接组合组件库现成组件，**不重复造自研基础组件**，仅无对应形态时才自研（如 ContactAvatar、graphGL 图容器）；Element Plus 视觉经 **CSS 变量映射层**（`design/` 内把 `--el-*` 翻译为 design tokens）收敛，ECharts/echarts-gl 的主题色同样只消费 tokens，业务组件禁止硬编码样式常量。
-- 视觉事实源不变：`DESIGN.md` + `frontend/src/design/`。
+- 视觉事实源不变：`DESIGN.md` + `frontend/src/design/`；**页面内容宽唯一口径**是全局 `.crm-page`（画布型布局页用 `.crm-page--full` 豁免），**数据录入统一居中弹窗**（D16/D17，2026-09-25）。
 
 ## 6. 唯一口径（每条规则全系统只有一个实现点）
 

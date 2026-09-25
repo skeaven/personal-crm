@@ -73,7 +73,7 @@ function open(item: TodoItemOut): void {
 }
 
 // ---- 手工任务抽屉（新建/编辑，仅 task 源） ----
-const showDrawer = ref(false)
+const showDialog = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = ref(emptyForm())
@@ -91,7 +91,7 @@ function emptyForm() {
 function openCreate(): void {
   editingId.value = null
   form.value = emptyForm()
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 /** 从聚合项打开编辑（仅 task 源会出现编辑按钮）。 */
@@ -104,7 +104,7 @@ function openEditFromTodo(item: TodoItemOut): void {
     detail: '',
     visibility: 'family',
   }
-  showDrawer.value = true
+  showDialog.value = true
 }
 
 async function submit(): Promise<void> {
@@ -125,7 +125,7 @@ async function submit(): Promise<void> {
       await tasksApi.update(editingId.value, payload)
       ElMessage.success('待办已更新')
     }
-    showDrawer.value = false
+    showDialog.value = false
     await loadTodos()
   } catch (error) {
     ElMessage.error(error instanceof ApiError ? error.message : '保存失败')
@@ -239,7 +239,12 @@ onMounted(async () => {
       </el-table-column>
     </el-table>
 
-    <el-drawer v-model="showDrawer" size="420px" :title="editingId === null ? '记一件事' : '编辑待办'">
+    <el-dialog
+      v-model="showDialog"
+      width="480px"
+      :title="editingId === null ? '记一件事' : '编辑待办'"
+      destroy-on-close
+    >
       <el-form label-position="top">
         <el-form-item label="事项" required>
           <el-input v-model="form.title" placeholder="如：给老爸买生日礼物" />
@@ -266,14 +271,12 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <div class="crm-drawer-footer">
-          <el-button text @click="showDrawer = false">取消</el-button>
-          <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
-            保存
-          </el-button>
-        </div>
+        <el-button text @click="showDialog = false">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
+          保存
+        </el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 

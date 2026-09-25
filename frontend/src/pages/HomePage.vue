@@ -109,7 +109,7 @@ onMounted(loadHome)
 </script>
 
 <template>
-  <div class="crm-page home-page">
+  <div class="crm-page crm-page--full home-page">
     <header class="page-head">
       <div>
         <h1 class="page-title crm-display">主 页</h1>
@@ -191,9 +191,6 @@ onMounted(loadHome)
 </template>
 
 <style scoped>
-.home-page {
-  max-width: none;
-}
 .page-head {
   margin-bottom: 24px;
 }

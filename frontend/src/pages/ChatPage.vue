@@ -4,7 +4,7 @@ import AgentChat from '@/components/AgentChat.vue'
 </script>
 
 <template>
-  <div class="assistant-page">
+  <div class="crm-page assistant-page">
     <header class="page-head">
       <div>
         <h1 class="page-title crm-display">助 手</h1>
@@ -20,7 +20,6 @@ import AgentChat from '@/components/AgentChat.vue'
 
 <style scoped>
 .assistant-page {
-  max-width: var(--crm-content-max-width, 1080px);
   height: calc(100vh - 88px);
   display: flex;
   flex-direction: column;

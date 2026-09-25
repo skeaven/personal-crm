@@ -95,6 +95,24 @@
   background: #ececeb;
 }
 
+/* 弹窗（数据表单统一形态，D16）：整体上移给字段多的表单留竖向空间，
+   正文超高时窗内滚动 —— header/footer 固定可见（官方默认是整个弹窗随内容滚动）。
+   注：--el-dialog-margin-top 被官方定义在 .el-dialog 自身，只能同选择器覆盖，:root 盖不住。 */
+.el-dialog {
+  --el-dialog-margin-top: 7vh;
+}
+.el-dialog__body {
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+}
+/* 窄屏（手机）：表单弹窗的 480px 固定宽度会超出视口，改以视口为准。
+   官方把 width 转成内联的 --el-dialog-width 变量，所以覆盖 width 属性本身（auto 外边距会自动重新居中）。 */
+@media (max-width: 560px) {
+  .el-dialog {
+    width: calc(100vw - 32px);
+  }
+}
+
 /* 详情页描述列表：label 列定宽防竖排折行 */
 .el-descriptions .info-label-cell {
   min-width: 64px;

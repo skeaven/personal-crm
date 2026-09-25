@@ -19,6 +19,8 @@
   --crm-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.04);
   --crm-ease: 200ms cubic-bezier(0.16, 1, 0.3, 1);
   --crm-entry: 600ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* 内容列宽上限：全站唯一的页面宽度口径（tokens.layout.contentMaxWidth 的 CSS 投影） */
+  --crm-content-max-width: 1080px;
 }
 
 html,
@@ -85,7 +87,15 @@ body {
 
 /* ---- 管理页布局原语（各功能页共用，避免 scoped 重复定义） ---- */
 .crm-page {
+  /* 唯一的页面宽度口径：占满可用宽度但受内容宽上限约束、整体居中。
+     各页面不再自行声明宽度，改口径只改这里。 */
   width: 100%;
+  max-width: var(--crm-content-max-width);
+  margin: 0 auto;
+}
+/* 画布型布局页（主页/图谱/地图）：内容本身需要横向空间，显式豁免上限 */
+.crm-page--full {
+  max-width: none;
 }
 .crm-page-head {
   display: flex;
@@ -109,11 +119,6 @@ body {
 }
 .crm-search {
   max-width: 320px;
-}
-.crm-drawer-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {
