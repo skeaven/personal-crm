@@ -24,14 +24,21 @@ router = APIRouter(prefix="/records", tags=["records"])
 
 @router.get("/activities", response_model=list[ActivityOut])
 async def list_activities(
+    response: Response,
     search: str | None = None,
     contact_id: int | None = None,
+    limit: int = Query(default=20, ge=1, le=200, description="每页条数（上限 200）"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ActivityOut]:
-    """活动列表（新→旧），支持标题/地点搜索与按参与者联系人过滤。"""
-    return await records_service.list_activities(
+    """活动列表（新→旧）；总数走 X-Total-Count 头，供列表页算页码。"""
+    total = await records_service.count_activities(
         db, current_user, search=search, contact_id=contact_id
+    )
+    response.headers["X-Total-Count"] = str(total)
+    return await records_service.list_activities(
+        db, current_user, search=search, contact_id=contact_id, limit=limit, offset=offset
     )
 
 

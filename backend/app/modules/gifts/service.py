@@ -62,12 +62,34 @@ async def list_gifts(
     search: str | None,
     direction: str | None,
     contact_id: int | None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[GiftOut]:
-    """列出可读礼物（送出/收到日期新→旧）。"""
+    """列出可读礼物（送出/收到日期新→旧）；limit/offset 用于分页。"""
     rows = await gifts_repo.find_readable_gifts(
-        db, user, search=search, direction=direction, contact_id=contact_id
+        db,
+        user,
+        search=search,
+        direction=direction,
+        contact_id=contact_id,
+        limit=limit,
+        offset=offset,
     )
     return [_to_gift_out(gift, owner_name) for gift, owner_name in rows]
+
+
+async def count_gifts(
+    db: AsyncSession,
+    user: User,
+    *,
+    search: str | None,
+    direction: str | None,
+    contact_id: int | None,
+) -> int:
+    """可读礼物总数（分页响应头 X-Total-Count 用）。"""
+    return await gifts_repo.count_readable_gifts(
+        db, user, search=search, direction=direction, contact_id=contact_id
+    )
 
 
 async def get_gift(db: AsyncSession, user: User, gift_id: int) -> GiftOut:

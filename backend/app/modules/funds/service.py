@@ -54,6 +54,8 @@ async def list_fund_flows(
     category: str | None,
     status: str | None,
     contact_id: int | None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[FundFlowOut]:
     """列出可读资金流水；pending 视图按应还日升序（主页还款提醒同口径）。"""
     rows = await funds_repo.find_readable_fund_flows(
@@ -64,8 +66,32 @@ async def list_fund_flows(
         category=category,
         status=status,
         contact_id=contact_id,
+        limit=limit,
+        offset=offset,
     )
     return [_to_out(flow, owner_name) for flow, owner_name in rows]
+
+
+async def count_fund_flows(
+    db: AsyncSession,
+    user: User,
+    *,
+    search: str | None,
+    direction: str | None,
+    category: str | None,
+    status: str | None,
+    contact_id: int | None,
+) -> int:
+    """可读资金流水总数（分页响应头 X-Total-Count 用）。"""
+    return await funds_repo.count_readable_fund_flows(
+        db,
+        user,
+        search=search,
+        direction=direction,
+        category=category,
+        status=status,
+        contact_id=contact_id,
+    )
 
 
 async def list_contact_fund_flows(

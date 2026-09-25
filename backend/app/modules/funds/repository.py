@@ -1,7 +1,7 @@
 """funds 模块数据访问层：资金流水的查询拼装。"""
 
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
@@ -18,6 +18,8 @@ async def find_readable_fund_flows(
     category: str | None = None,
     status: str | None = None,
     contact_id: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[tuple[FundFlow, str]]:
     """按读取范围查资金流水（发生日新→旧），支持搜索与多维过滤组合。
 
@@ -44,7 +46,37 @@ async def find_readable_fund_flows(
         stmt = stmt.order_by(FundFlow.due_at.asc().nulls_last())
     else:
         stmt = stmt.order_by(FundFlow.occurred_at.desc(), FundFlow.id.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     return list((await db.execute(stmt)).all())
+
+
+async def count_readable_fund_flows(
+    db: AsyncSession,
+    user,
+    *,
+    search: str | None = None,
+    direction: str | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    contact_id: int | None = None,
+) -> int:
+    """统计可读资金流水总数（过滤条件必须与 find_readable_fund_flows 保持一致）。"""
+    stmt = (
+        select(func.count()).select_from(FundFlow).where(readable_condition(FundFlow, user))
+    )
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(FundFlow.description.ilike(pattern))
+    if direction is not None:
+        stmt = stmt.where(FundFlow.direction == direction)
+    if category is not None:
+        stmt = stmt.where(FundFlow.category == category)
+    if contact_id is not None:
+        stmt = stmt.where(FundFlow.contact_id == contact_id)
+    if status is not None:
+        stmt = stmt.where(FundFlow.status == status)
+    return (await db.execute(stmt)).scalar_one()
 
 
 async def get_readable_fund_flow(db: AsyncSession, user, fund_id: int) -> FundFlow | None:

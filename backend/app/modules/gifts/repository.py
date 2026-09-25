@@ -1,7 +1,7 @@
 """gifts 模块数据访问层：礼物往来与愿望清单的查询拼装。"""
 
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
@@ -16,6 +16,8 @@ async def find_readable_gifts(
     search: str | None = None,
     direction: str | None = None,
     contact_id: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[tuple[Gift, str]]:
     """按读取范围查礼物列表（新→旧），可按关键字/方向/联系人组合过滤。
 
@@ -34,7 +36,29 @@ async def find_readable_gifts(
     if contact_id is not None:
         stmt = stmt.where(Gift.contact_id == contact_id)
     stmt = stmt.order_by(Gift.given_at.desc().nulls_last(), Gift.id.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit).offset(offset)
     return list((await db.execute(stmt)).all())
+
+
+async def count_readable_gifts(
+    db: AsyncSession,
+    user,
+    *,
+    search: str | None = None,
+    direction: str | None = None,
+    contact_id: int | None = None,
+) -> int:
+    """统计可读礼物总数（过滤条件必须与 find_readable_gifts 保持一致）。"""
+    stmt = select(func.count()).select_from(Gift).where(readable_condition(Gift, user))
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(Gift.title.ilike(pattern) | Gift.occasion.ilike(pattern))
+    if direction is not None:
+        stmt = stmt.where(Gift.direction == direction)
+    if contact_id is not None:
+        stmt = stmt.where(Gift.contact_id == contact_id)
+    return (await db.execute(stmt)).scalar_one()
 
 
 async def get_readable_gift(db: AsyncSession, user, gift_id: int) -> Gift | None:

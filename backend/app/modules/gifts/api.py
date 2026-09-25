@@ -26,15 +26,28 @@ router = APIRouter(prefix="/gifts", tags=["gifts"])
 
 @router.get("", response_model=list[GiftOut])
 async def list_gifts(
+    response: Response,
     search: str | None = None,
     direction: str | None = Query(default=None, description="given/received"),
     contact_id: int | None = None,
+    limit: int = Query(default=20, ge=1, le=200, description="每页条数（上限 200）"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[GiftOut]:
-    """礼物往来列表：关键字（名称/场合）、方向、联系人组合过滤。"""
-    return await gifts_service.list_gifts(
+    """礼物往来列表：关键字/方向/联系人过滤；总数走 X-Total-Count 头。"""
+    total = await gifts_service.count_gifts(
         db, current_user, search=search, direction=direction, contact_id=contact_id
+    )
+    response.headers["X-Total-Count"] = str(total)
+    return await gifts_service.list_gifts(
+        db,
+        current_user,
+        search=search,
+        direction=direction,
+        contact_id=contact_id,
+        limit=limit,
+        offset=offset,
     )
 
 

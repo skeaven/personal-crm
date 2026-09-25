@@ -130,6 +130,15 @@ async def list_activities(
     return outputs
 
 
+async def count_activities(
+    db: AsyncSession, user: User, *, search: str | None, contact_id: int | None = None
+) -> int:
+    """可读活动总数（分页响应头 X-Total-Count 用）。"""
+    return await records_repo.count_readable_activities(
+        db, user, search=search, contact_id=contact_id
+    )
+
+
 async def list_upcoming_activities(
     db: AsyncSession, user: User, *, from_time: datetime
 ) -> list[ActivityOut]:

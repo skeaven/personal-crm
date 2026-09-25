@@ -14,18 +14,31 @@ router = APIRouter(prefix="/funds", tags=["funds"])
 
 @router.get("", response_model=list[FundFlowOut])
 async def list_fund_flows(
+    response: Response,
     search: str | None = None,
     direction: str | None = Query(default=None, description="out/in"),
     category: str | None = Query(default=None, description="loan/repayment/gift_money/other"),
     status: str | None = Query(default=None, description="pending/settled"),
     contact_id: int | None = None,
+    limit: int = Query(default=20, ge=1, le=200, description="每页条数（上限 200）"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[FundFlowOut]:
-    """资金流水列表：说明关键字 + 方向/类别/状态/联系人组合过滤。
+    """资金流水列表：多维过滤组合；总数走 X-Total-Count 头。
 
     status=pending 时按应还日升序（快到期在前）。
     """
+    total = await funds_service.count_fund_flows(
+        db,
+        current_user,
+        search=search,
+        direction=direction,
+        category=category,
+        status=status,
+        contact_id=contact_id,
+    )
+    response.headers["X-Total-Count"] = str(total)
     return await funds_service.list_fund_flows(
         db,
         current_user,
@@ -34,6 +47,8 @@ async def list_fund_flows(
         category=category,
         status=status,
         contact_id=contact_id,
+        limit=limit,
+        offset=offset,
     )
 
 

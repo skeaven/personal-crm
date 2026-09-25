@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
@@ -177,3 +177,22 @@ async def list_images_for_activities(
     for image in (await db.execute(stmt)).scalars().all():
         grouped.setdefault(image.activity_id, []).append(image)
     return grouped
+
+
+async def count_readable_activities(
+    db: AsyncSession, user, *, search: str | None = None, contact_id: int | None = None
+) -> int:
+    """统计可读活动总数（过滤条件必须与 find_readable_activities 保持一致）。"""
+    stmt = (
+        select(func.count())
+        .select_from(Activity)
+        .where(Activity.is_active.is_(True), readable_condition(Activity, user))
+    )
+    if contact_id is not None:
+        stmt = stmt.join(
+            ActivityParticipant, ActivityParticipant.activity_id == Activity.id
+        ).where(ActivityParticipant.contact_id == contact_id)
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(Activity.title.ilike(pattern) | Activity.location.ilike(pattern))
+    return (await db.execute(stmt)).scalar_one()
