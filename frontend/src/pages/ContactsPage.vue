@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 名册页：搜索 + 层级过滤 + "最近联系"过滤（主页统计卡跳转联动）+ 名册列表 + 创建抽屉。 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { contactsApi } from '@/api/contacts'
@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 import { tokens } from '@/design/tokens'
 import ContactAvatar from '@/components/ContactAvatar.vue'
 import type { ContactCreate, ContactCreateResponse, ContactOut, DuplicateWarning } from '@/api/types'
+import { useFormDirty } from '@/composables/useFormDirty'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -85,6 +86,18 @@ const form = ref<CreateForm>({
 })
 const duplicateWarnings = ref<DuplicateWarning[]>([])
 
+// 名册允许只填名不填姓，与原表单校验一致
+const { capture, canSubmit } = useFormDirty(form, {
+  isSubmittable: (draft) => draft.last_name.trim().length > 0 || draft.first_name.trim().length > 0,
+})
+
+/** 打开创建弹窗：重置为空白表单，避免残留上次取消前的输入。 */
+function openCreate(): void {
+  resetForm()
+  capture()
+  showCreate.value = true
+}
+
 const genderOptions = [
   { label: '未知', value: 'unknown' },
   { label: '男', value: 'male' },
@@ -151,7 +164,7 @@ onMounted(loadContacts)
         <h1 class="page-title crm-display">名 册</h1>
         <p class="page-sub">共 {{ contacts.length }} 位 · {{ auth.user?.display_name }} 的家庭共享名册</p>
       </div>
-      <el-button type="primary" @click="showCreate = true">记下一个人</el-button>
+      <el-button type="primary" @click="openCreate">记下一个人</el-button>
     </header>
 
     <div class="toolbar">
@@ -227,7 +240,7 @@ onMounted(loadContacts)
     </el-table>
     <!-- naive 的 #extra 插槽对应 el-empty 的默认插槽（渲染在描述下方） -->
     <el-empty v-else-if="!loading" description="名册还是空的，记下第一个重要的人吧" class="empty">
-      <el-button type="primary" @click="showCreate = true">记下一个人</el-button>
+      <el-button type="primary" @click="openCreate">记下一个人</el-button>
     </el-empty>
 
     <!-- 创建弹窗 -->
@@ -296,6 +309,7 @@ onMounted(loadContacts)
         <el-button
           type="primary"
           :loading="creating"
+          :disabled="!canSubmit"
           @click="duplicateWarnings.length ? submitCreate(true) : submitCreate(false)"
         >
           {{ duplicateWarnings.length ? '仍要记录' : '记 下' }}

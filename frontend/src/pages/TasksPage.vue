@@ -12,6 +12,7 @@ import { ApiError } from '@/api/client'
 import { tokens } from '@/design/tokens'
 import type { TodoBucket, TodoItemOut, TodoSource } from '@/api/types'
 import { useContactOptions } from '@/composables/useContactOptions'
+import { useFormDirty } from '@/composables/useFormDirty'
 
 const router = useRouter()
 const { options, load: loadContacts, nameOf } = useContactOptions()
@@ -78,6 +79,10 @@ const saving = ref(false)
 const editingId = ref<number | null>(null)
 const form = ref(emptyForm())
 
+const { capture, canSubmit } = useFormDirty(form, {
+  isSubmittable: (draft) => draft.title.trim().length > 0,
+})
+
 function emptyForm() {
   return {
     title: '',
@@ -91,6 +96,7 @@ function emptyForm() {
 function openCreate(): void {
   editingId.value = null
   form.value = emptyForm()
+  capture()
   showDialog.value = true
 }
 
@@ -104,6 +110,7 @@ function openEditFromTodo(item: TodoItemOut): void {
     detail: '',
     visibility: 'family',
   }
+  capture()
   showDialog.value = true
 }
 
@@ -272,7 +279,7 @@ onMounted(async () => {
       </el-form>
       <template #footer>
         <el-button text @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!form.title.trim()" @click="submit">
+        <el-button type="primary" :loading="saving" :disabled="!canSubmit" @click="submit">
           保存
         </el-button>
       </template>
