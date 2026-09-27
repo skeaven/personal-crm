@@ -9,6 +9,7 @@ import { fundsApi } from '@/api/funds'
 import { ApiError } from '@/api/client'
 import { useContactOptions } from '@/composables/useContactOptions'
 import { useFormDirty } from '@/composables/useFormDirty'
+import { clearableId } from '@/utils/form'
 import type { FundCategory, FundDirection, FundFlowOut } from '@/api/types'
 
 const props = defineProps<{
@@ -80,7 +81,7 @@ async function submit(): Promise<void> {
     const payload = {
       direction: form.value.direction,
       category: form.value.category,
-      contact_id: form.value.contact_id,
+      contact_id: clearableId(form.value.contact_id),
       amount: form.value.amount,
       occurred_at: form.value.occurred_at,
       due_at: form.value.due_at,

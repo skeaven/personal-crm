@@ -13,6 +13,7 @@ import { tokens } from '@/design/tokens'
 import type { TodoBucket, TodoItemOut, TodoSource } from '@/api/types'
 import { useContactOptions } from '@/composables/useContactOptions'
 import { useFormDirty } from '@/composables/useFormDirty'
+import { clearableId } from '@/utils/form'
 
 const router = useRouter()
 const { options, load: loadContacts, nameOf } = useContactOptions()
@@ -120,7 +121,7 @@ async function submit(): Promise<void> {
     const payload = {
       title: form.value.title,
       // 联系人清空后归一为 null（EP 清空产出 undefined，PATCH 缺省键不会清字段）
-      contact_id: form.value.contact_id ?? null,
+      contact_id: clearableId(form.value.contact_id),
       // value-format 产出 "YYYY-MM-DD HH:mm"，空格换 T 才能被 Date 按本地时区解析（正午时刻防时区偏移）
       due_at: form.value.due_at ? new Date(form.value.due_at.replace(' ', 'T')).toISOString() : null,
       detail: form.value.detail || null,

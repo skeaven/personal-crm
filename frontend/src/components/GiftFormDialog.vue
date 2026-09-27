@@ -9,6 +9,7 @@ import { giftsApi } from '@/api/gifts'
 import { ApiError } from '@/api/client'
 import { useContactOptions } from '@/composables/useContactOptions'
 import { useFormDirty } from '@/composables/useFormDirty'
+import { clearableId } from '@/utils/form'
 import type { GiftDirection, GiftOut } from '@/api/types'
 
 const props = defineProps<{
@@ -83,7 +84,7 @@ async function submit(): Promise<void> {
     const payload = {
       direction: form.value.direction,
       title: form.value.title,
-      contact_id: form.value.contact_id,
+      contact_id: clearableId(form.value.contact_id),
       occasion: form.value.occasion || null,
       amount: form.value.amount || null,
       given_at: form.value.given_at,
