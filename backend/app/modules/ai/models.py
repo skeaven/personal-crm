@@ -1,4 +1,5 @@
-"""ai 模块 ORM 模型：PendingAction（D11 确认队列）+ Embedding（D3/D6.3 语义向量）。"""
+"""ai 模块 ORM 模型：PendingAction（D11 确认队列）+ Embedding（D3/D6.3 语义向量）
++ AiSession（助理会话索引）。"""
 
 from datetime import datetime
 
@@ -84,3 +85,21 @@ class Embedding(Base, OwnershipMixin):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间"
     )
+
+
+class AiSession(Base, TimestampMixin):
+    """AI 会话索引：只承载列表展示与归属校验。
+
+    对话内容本身由 LangGraph checkpointer 按 thread_id 存（D20），
+    所以本表字段保持最小；thread_id 是 checkpointer 的实现细节，不入业务表。
+    """
+
+    __tablename__ = "ai_sessions"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, comment="前端生成的会话标识（uuid）"
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), index=True, comment="归属用户"
+    )
+    title: Mapped[str] = mapped_column(String(100), comment="取首条用户消息前若干字")

@@ -5,7 +5,7 @@
 
 from app.core.db import Base  # noqa: F401
 from app.core.models import ActivationMixin, OwnershipMixin, TimestampMixin  # noqa: F401
-from app.modules.ai.models import Embedding, PendingAction  # noqa: F401
+from app.modules.ai.models import AiSession, Embedding, PendingAction  # noqa: F401
 from app.modules.auth.models import Family, User, UserToken  # noqa: F401
 from app.modules.contacts.models import Contact, ImportantDate  # noqa: F401
 from app.modules.funds.models import FundFlow  # noqa: F401
