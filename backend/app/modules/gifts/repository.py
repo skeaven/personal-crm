@@ -37,6 +37,7 @@ async def find_readable_gifts(
         stmt = stmt.where(Gift.contact_id == contact_id)
     stmt = stmt.order_by(Gift.given_at.desc().nulls_last(), Gift.id.desc())
     if limit is not None:
+        # offset 分页：个人量级够用；并发新增会让跨页重复或遗漏，届时换 keyset（D19）
         stmt = stmt.limit(limit).offset(offset)
     return list((await db.execute(stmt)).all())
 

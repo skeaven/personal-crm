@@ -42,6 +42,7 @@ async def find_readable_activities(
         stmt = stmt.where(Activity.occurred_at >= from_time)
     stmt = stmt.order_by(Activity.occurred_at.desc().nulls_last(), Activity.id.desc())
     if limit is not None:
+        # offset 分页：个人量级够用；并发新增会让跨页重复或遗漏，届时换 keyset（D19）
         stmt = stmt.limit(limit).offset(offset)
     return list((await db.execute(stmt)).all())
 

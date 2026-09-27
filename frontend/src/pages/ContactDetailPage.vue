@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /** 联系人详情页：系统的核心枢纽。
  * 结构 = 头部 + 静态区（基本信息/重要日期/关系，两列瀑布排布）
- *       + 竖向时间线（礼物/资金/活动倒序，滚动渐现的切片加载）。
- * 后续新数据类型在后端时间线聚合中扩充 source 即可，前端按 source 渲染。 */
+ *       + 往来区（活动/资金/礼物三个 Tab，各自分页加载，D19）。
+ * 每个 Tab 由 RecordTimeline 独立取数与渲染，保存/删除后按记录所属 Tab 刷新；
+ * 新增往来类型时加一个 Tab 与对应共享弹窗即可，不需要动 dashboard 的聚合接口
+ * （那个保留给 AI 工具的 get_contact_timeline）。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
