@@ -1,5 +1,6 @@
 """应用入口：应用工厂 + MCP 端点 + 生产模式 SPA 静态托管（D2 一体化部署）。"""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
 from app.core.errors import BusinessError
+
+logger = logging.getLogger(__name__)
 
 # 仓库根目录下的前端构建产物（backend/app/main.py → 上三级为仓库根）
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -57,8 +60,17 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        """宿主生命周期：承载 MCP 会话管理器（SDK 要求挂载前调用 streamable app）。"""
+        """宿主生命周期：启动时回收过期临时文件 + 承载 MCP 会话管理器。
+
+        临时区清理只在启动时扫一次（个人量级足够；用户取消上传、上传中途失败
+        都会留下无人引用的临时文件，没有这一步它们永远不会被回收）。
+        """
         from app.modules.ai.mcp_endpoint import mcp_lifespan
+        from app.services import storage
+
+        removed = storage.cleanup_temp()
+        if removed:
+            logger.info("启动清理：删除 %d 个过期临时文件", removed)
 
         async with mcp_lifespan():
             yield

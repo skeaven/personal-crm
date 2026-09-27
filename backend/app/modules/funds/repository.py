@@ -43,7 +43,8 @@ async def find_readable_fund_flows(
         stmt = stmt.where(FundFlow.status == status)
 
     if status == "pending":
-        stmt = stmt.order_by(FundFlow.due_at.asc().nulls_last())
+        # id 是唯一兜底键：due_at 并列（含全为 NULL）时保证分页是确定序，否则跨页会重复/遗漏
+        stmt = stmt.order_by(FundFlow.due_at.asc().nulls_last(), FundFlow.id.desc())
     else:
         stmt = stmt.order_by(FundFlow.occurred_at.desc(), FundFlow.id.desc())
     if limit is not None:

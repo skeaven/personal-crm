@@ -106,3 +106,44 @@ def test_cleanup_temp_removes_only_expired_files():
     assert removed == 1
     assert (storage.upload_root() / fresh).is_file()
     assert not stale_path.exists()
+
+
+def test_save_temp_rejects_non_image_content():
+    """扩展名伪装成图片的非图片内容必须在上传入口被拒。
+
+    iPhone 直出的 HEIC 改名成 .jpg 是很常见的路径，而扩展名校验拦不住它；
+    若放行，promotion 阶段会抛 UnidentifiedImageError（非 BusinessError → 500），
+    且文件已被搬进正式区成为永不被回收的孤儿。
+    """
+    with pytest.raises(ValidationError):
+        storage.save_temp(1, "fake.jpg", b"this is not an image")
+
+
+def test_save_temp_rejects_truncated_jpeg():
+    """截断/损坏的 JPEG 同样必须被拒（真实 JPEG 头 + 残缺数据）。"""
+    truncated = _jpeg_bytes((40, 40))[: len(_jpeg_bytes((40, 40))) // 3]
+
+    with pytest.raises(ValidationError):
+        storage.save_temp(1, "broken.jpg", truncated)
+
+
+async def test_app_startup_cleans_temp(monkeypatch):
+    """应用启动时必须调用一次临时区清理。
+
+    spec 3.1 写明「应用启动时执行一次」，否则用户上传后点取消留下的文件、
+    以及各种失败路径的残留，在自托管场景下永远没有回收路径。
+    """
+    from app.services import storage as storage_module
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        storage_module, "cleanup_temp", lambda *args, **kwargs: calls.append(1) or 0
+    )
+
+    from app.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert calls, "启动时没有调用 storage.cleanup_temp"

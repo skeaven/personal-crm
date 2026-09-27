@@ -4,12 +4,13 @@
 文件删除必须发生在事务提交之后，故提供 defer_delete() 登记、由 after_commit 事件真正删盘。
 """
 
+import io
 import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
@@ -54,14 +55,32 @@ def validate_image_extension(filename: str) -> str:
     return extension
 
 
+def _ensure_decodable(content: bytes) -> None:
+    """校验字节流确实是一张可解码的图片。
+
+    扩展名可以随便改（iPhone 直出的 HEIC 改名成 .jpg 很常见），所以内容必须验。
+    在上传入口挡住，promotion 阶段就不可能因解码失败而中断——那会留下已搬进
+    正式区却没有任何引用指向的孤儿文件（cleanup_temp 只扫临时区，回收不了）。
+    """
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            image.verify()
+        # verify() 只查结构，截断文件可能蒙混过关；再真正解一遍像素
+        with Image.open(io.BytesIO(content)) as image:
+            image.load()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValidationError("这不是有效的图片文件") from exc
+
+
 def save_temp(user_id: int, filename: str, content: bytes) -> str:
     """把上传字节写入该用户的临时区，返回相对路径。
 
-    文件名由服务端生成（不采用客户端文件名），扩展名走白名单。
+    文件名由服务端生成（不采用客户端文件名）；扩展名走白名单，内容还要能解码。
     """
     if len(content) > MAX_IMAGE_BYTES:
         raise ValidationError("单张图片不能超过 10MB")
     extension = validate_image_extension(filename)
+    _ensure_decodable(content)
 
     relative_path = f"tmp/{user_id}/{uuid.uuid4().hex}{extension}"
     target = resolve_within_root(relative_path)
@@ -104,11 +123,18 @@ def promote_temp(temp_path: str, user_id: int, kind: str) -> tuple[str, str]:
 
 
 def _write_thumbnail(source: Path, target: Path) -> None:
-    """生成最长边不超过 THUMB_MAX_EDGE 的 JPEG 缩略图（列表卡片用，避免加载原图）。"""
-    with Image.open(source) as image:
-        converted = image.convert("RGB")
-        converted.thumbnail((THUMB_MAX_EDGE, THUMB_MAX_EDGE))
-        converted.save(target, "JPEG", quality=82)
+    """生成最长边不超过 THUMB_MAX_EDGE 的 JPEG 缩略图（列表卡片用，避免加载原图）。
+
+    第二道防线：正常情况下 save_temp 已验过内容，但临时文件在盘上仍可能被损坏，
+    这里失败要转成业务错误（否则会以 500 冒出去，且文件已落在正式区）。
+    """
+    try:
+        with Image.open(source) as image:
+            converted = image.convert("RGB")
+            converted.thumbnail((THUMB_MAX_EDGE, THUMB_MAX_EDGE))
+            converted.save(target, "JPEG", quality=82)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValidationError("图片无法解码，请换一张重试") from exc
 
 
 def delete_files(*relative_paths: str | None) -> None:

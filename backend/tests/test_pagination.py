@@ -118,3 +118,44 @@ async def test_offset_beyond_total_returns_empty(client, login_headers, make_use
     assert response.status_code == 200
     assert response.json() == []
     assert response.headers["X-Total-Count"] == "3"
+
+
+async def test_pending_view_pagination_is_deterministic(
+    client, login_headers, make_user, db_session
+):
+    """未结清视图（按应还日升序）分页必须是确定序。
+
+    pending 分支原先只按 due_at 排序、没有唯一兜底键；due_at 并列时 Postgres
+    不保证稳定顺序，LIMIT/OFFSET 跨页就有重复/遗漏的空间（Review Focus #3）。
+    这里全部记录同为一天到期，并列组内必须按 id 递减，分页才可预测。
+    """
+    from tests.factories import create_fund_for
+
+    user, _ = await make_user(username="pending_pager", password="pw12345678")
+    headers = await login_headers("pending_pager", "pw12345678")
+    for _ in range(25):
+        await create_fund_for(
+            user,
+            direction="out",
+            category="loan",
+            amount=Decimal("1.00"),
+            occurred_at=date.today(),
+            due_at=date(2026, 12, 31),
+            status="pending",
+        )
+
+    first = (
+        await client.get("/api/v1/funds?status=pending&limit=20&offset=0", headers=headers)
+    ).json()
+    second = (
+        await client.get("/api/v1/funds?status=pending&limit=20&offset=20", headers=headers)
+    ).json()
+
+    first_ids = [item["id"] for item in first]
+    second_ids = [item["id"] for item in second]
+    assert len(set(first_ids) & set(second_ids)) == 0, "跨页出现重复记录"
+    assert len(set(first_ids) | set(second_ids)) == 25, "跨页出现遗漏"
+    # 并列组内按 id 递减（唯一兜底键），分页才是确定序
+    assert first_ids == sorted(first_ids, reverse=True), "首页未按 id 递减"
+    assert second_ids == sorted(second_ids, reverse=True), "次页未按 id 递减"
+    assert first_ids[-1] > second_ids[0], "跨页未按 id 接续"
