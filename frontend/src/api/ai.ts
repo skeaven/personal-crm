@@ -5,7 +5,9 @@ import type {
   AiEmbeddingConfigOut,
   AiLlmConfigIn,
   AiLlmConfigOut,
+  AiSessionOut,
   AiTestOut,
+  HistoryMessageOut,
   PendingActionOut,
   RebuildOut,
   ToolOut,
@@ -13,7 +15,7 @@ import type {
 
 export interface ChatStreamEvent {
   type: 'start' | 'text' | 'tool' | 'error' | 'done'
-  thread_id?: string
+  session_id?: string
   delta?: string
   name?: string
   code?: string
@@ -29,18 +31,25 @@ export const aiApi = {
   approve: (id: number) => api.post<PendingActionOut>(`/ai/pending/${id}/approve`),
   /** 拒绝提议。 */
   reject: (id: number) => api.post<PendingActionOut>(`/ai/pending/${id}/reject`),
+  /** 我的会话列表（按最后活跃倒序）。 */
+  sessions: () => api.get<AiSessionOut[]>('/ai/sessions'),
+  /** 某会话的历史消息（切换会话时用）。 */
+  sessionMessages: (sessionId: string) =>
+    api.get<HistoryMessageOut[]>(`/ai/sessions/${sessionId}/messages`),
+  /** 删除会话（索引与对话内容一并清）。 */
+  removeSession: (sessionId: string) => api.delete<void>(`/ai/sessions/${sessionId}`),
 
   /**
    * 对话流：POST + SSE。onEvent 逐帧回调；返回 Promise 在流结束时 resolve。
    * 手工 fetch（EventSource 不支持 POST/鉴权头）。
    */
-  chat: async (message: string, threadId: string | null, onEvent: (event: ChatStreamEvent) => void) => {
+  chat: async (message: string, sessionId: string | null, onEvent: (event: ChatStreamEvent) => void) => {
     const auth = await import('@/stores/auth')
     const store = auth.useAuthStore()
     const response = await fetch('/api/v1/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${store.token}` },
-      body: JSON.stringify({ message, thread_id: threadId }),
+      body: JSON.stringify({ message, session_id: sessionId }),
     })
     if (!response.ok || !response.body) {
       throw new Error(`对话请求失败（${response.status}）`)

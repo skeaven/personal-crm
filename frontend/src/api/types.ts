@@ -337,6 +337,21 @@ export interface RebuildOut {
   removed: number
 }
 
+/** AI 会话索引（列表展示用） */
+export interface AiSessionOut {
+  session_id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+/** 历史消息：与流式渲染同形状，前端复用同一套渲染 */
+export interface HistoryMessageOut {
+  role: 'user' | 'assistant'
+  content: string
+  tools: string[]
+}
+
 // ---------- records 模块：活动 / 任务 ----------
 
 export interface ActivityOut {
