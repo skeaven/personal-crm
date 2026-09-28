@@ -36,7 +36,7 @@ async def test_chat_streams_stub_events(client, make_user, login_headers, monkey
     demo, _ = await make_user(username="demo")
     headers = await login_headers("demo", "demo12345")
 
-    async def fake_stream(db, user, llm, message, thread_id):
+    async def fake_stream(db, user, llm, message, session_id):
         yield {"type": "tool", "name": "get_upcoming_todos"}
         yield {"type": "text", "delta": "你有 "}
         yield {"type": "text", "delta": "3 件待办"}
@@ -96,3 +96,47 @@ async def test_pending_flow_http(client, make_user, login_headers):
     async with factory() as session:
         tasks = list((await session.execute(select(Task))).scalars())
         assert len(tasks) == 1 and tasks[0].contact_id == father.id
+
+
+async def test_chat_creates_session_index_on_first_turn(client, login_headers, make_user):
+    """首轮提问要顺手建立会话索引行，否则会话列表里永远看不到它（Review Focus #4）。"""
+    from app.core.db import get_session_factory
+    from app.modules.ai.models import AiSession
+
+    user, _ = await make_user(username="chat_owner", password="pw12345678")
+    headers = await login_headers("chat_owner", "pw12345678")
+
+    response = await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "老爸最近怎么样", "session_id": "sess-first"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    factory = get_session_factory()
+    async with factory() as session:
+        stored = await session.get(AiSession, "sess-first")
+    assert stored is not None
+    assert stored.user_id == user.id
+    assert stored.title == "老爸最近怎么样"
+
+
+async def test_chat_rejects_session_id_owned_by_other_user(client, login_headers, make_user):
+    """拿到别人的 session_id 提问必须被拒（Review Focus #1）。"""
+    await make_user(username="sess_owner", password="pw12345678")
+    await make_user(username="sess_intruder", password="pw12345678")
+    owner_headers = await login_headers("sess_owner", "pw12345678")
+    intruder_headers = await login_headers("sess_intruder", "pw12345678")
+    await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "我的私事", "session_id": "sess-owned"},
+        headers=owner_headers,
+    )
+
+    response = await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "偷看", "session_id": "sess-owned"},
+        headers=intruder_headers,
+    )
+
+    assert "会话不存在" in response.text

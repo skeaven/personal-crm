@@ -24,10 +24,10 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 class ChatIn(BaseModel):
-    """对话请求：message 必填；thread_id 用于多轮记忆（缺省新建会话）。"""
+    """对话请求：session_id 由前端生成（一个对话一个 id），缺失则服务端补一个。"""
 
     message: str = Field(min_length=1)
-    thread_id: str | None = None
+    session_id: str | None = None
 
 
 class PendingActionOut(BaseModel):
@@ -91,13 +91,16 @@ async def chat(
     """agent 对话（SSE 流）：文本增量 / 工具调用状态 / 写入提议 / 错误 / 结束帧。"""
 
     async def event_stream():
-        thread_id = body.thread_id or str(uuid.uuid4())
+        session_id = body.session_id or str(uuid.uuid4())
         try:
-            yield _sse({"type": "start", "thread_id": thread_id})
+            # 首轮提问顺手建索引行；已存在则只更新活跃时间。
+            # 主键撞车（属于他人）会抛 NotFoundError，一并走下面的错误帧。
+            await sessions.ensure_session(db, current_user, session_id, body.message)
+            yield _sse({"type": "start", "session_id": session_id})
             llm = await require_llm(db)
             from agent.runner import stream_agent
 
-            async for event in stream_agent(db, current_user, llm, body.message, thread_id):
+            async for event in stream_agent(db, current_user, llm, body.message, session_id):
                 yield _sse(event)
         except LLMNotConfiguredError as exc:
             yield _sse({"type": "error", "code": "llm_not_configured", "message": exc.message})
