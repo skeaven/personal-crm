@@ -31,6 +31,7 @@
 | D17 | **页面内容宽统一**：唯一口径 `.crm-page`（100% + 1080px 上限居中），画布型布局页 `.crm-page--full` 豁免 | ✅ | 2026-09-25 |
 | D18 | **图片存储与两阶段上传**：临时区→正式区，表单 JSON 携带路径；读取走鉴权端点；缩略图 400px | ✅ | 2026-09-25 |
 | D19 | **联系人往来 Tabs 化**：三 Tab 各自分页，前端不再用聚合接口（保留给 AI 工具）；列表接口 limit 默认 20 | ✅ | 2026-09-25 |
+| D20 | **助理会话持久化**：session（业务）/ thread（LangGraph）分层命名；`ai_sessions` 索引表 + `AsyncPostgresSaver`；session_id 前端生成 | ✅ | 2026-09-27 |
 
 ---
 
@@ -268,3 +269,15 @@
   4. 分页用 offset（代码里标了升级到 keyset 的路径）。
 - **理由**：拆 Tab 后每个 Tab 是单类型查询，排序与分页直接复用各模块既有 repository，不需要新的聚合口径。
 - **影响**：`GET /records/activities` 补 `contact_id`（三个接口里唯一缺的）；前端 `dashboardApi.timeline` 不再使用；三个列表页与详情页共用同一套表单弹窗组件。
+
+## D20 助理会话持久化 ✅（2026-09-27，落实 R3/D6）
+
+- **背景**：对话走 `InMemorySaver` 进程内内存，重启 uvicorn 即丢历史；希望会话按前端生成的 `session_id` 持久化，支持多会话列表、切换、删除与历史回看。
+- **决策**：
+  1. **命名分层**：业务与前端只认 `session_id`；`thread_id` 是 LangGraph 概念，仅存在于 `backend/agent/runner.py` 内部，由 `f"{user.id}:{session_id}"` 拼成。不出现在表名、路由、前端类型或 API 契约里。
+  2. **`ai_sessions` 索引表**归 ai 模块，`session_id`（VARCHAR 64）直接做 PK（前端 uuid 天然唯一），只承载列表/标题/最后活跃时间；对话内容仍在 checkpointer。
+  3. **checkpointer 换 `AsyncPostgresSaver`**（langgraph-checkpoint-postgres）：在 lifespan 中长期持有、必须 `.setup()`；不可用时降级为内存态，不因数据库暂连不上而让整个应用起不来。
+  4. **连接串从 `DATABASE_URL` 派生**（去 `+asyncpg` 方言前缀），不新增配置项。
+  5. **首轮 chat 顺手 upsert 索引行**（`ON CONFLICT` 语义，已存在只更新活跃时间，主键撞车属他人则 404），无独立「创建会话」端点。
+- **理由**：内存态丢历史是本次根因；`AsyncPostgresSaver` 是 LangGraph 既定持久化方式，破坏性最小。
+- **影响**：**引入第二个数据库驱动 psycopg3**（与 asyncpg 并存，前者仅服务 checkpointer）；`ChatIn.thread_id` 更名为 `session_id`（破坏性、前端同步改）。

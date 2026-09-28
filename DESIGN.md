@@ -72,6 +72,13 @@
 - **时间线卡片**：操作按钮（查看详情/删除）右对齐、`size="small"`；删除走 `el-popconfirm`；金额用 `tabular-nums` 等宽数字。
 - **Tab 标签内的「记一笔」**：`text` 按钮嵌在标签里，带 `@click.stop`（点它不切换 Tab）。
 
+## 助理页（2026-09-27）
+
+- **两栏栅格**：`grid-template-columns: 220px 1fr`，栅格间距 16px；左侧会话列表定宽，右侧对话区自适应（`.chat-card` 用 `--crm-canvas` 底 + `--crm-line` 描边 + `--crm-radius-float` 圆角）。
+- **会话列表项**：44px 高、悬停与选中同为 `--crm-bone` 底、标题单行省略；列表时间只到「日」；删除走 `el-popconfirm`。
+- **窄屏 <720px**：退化为上下排列（列表在上、对话区在下），`grid-template-rows: auto 1fr`。
+- 助理为导航独立入口（`/assistant`），不再有全局悬浮球。
+
 ## 锁定规则（用户指令，2026-09-20）
 
 - 风格一经选定不再摇摆；**要改只能全站一起改**：改 `tokens.ts` / `theme.ts` 一处生效全局，出现"某个页面颜色不一样"即为缺陷（v2→v3 改版即按此机制执行）；
