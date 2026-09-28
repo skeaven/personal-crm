@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** Agent 对话组件：SSE 流式渲染 + 工具调用状态 + 写入提议确认。
- * 对话页与悬浮球浮层共用（compact 属性控制密度）。 */
-import { nextTick, onMounted, ref } from 'vue'
+ * 由页面持有 sessionId（切换会话即载入历史），不自己管理会话标识。 */
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { aiApi, type ChatStreamEvent } from '@/api/ai'
 import { ApiError } from '@/api/client'
@@ -17,12 +17,14 @@ interface ChatMessage {
   pendingHint?: string
 }
 
-const props = defineProps<{ compact?: boolean }>()
+const props = defineProps<{ sessionId: string }>()
+const emit = defineEmits<{ updated: [] }>()
 
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const streaming = ref(false)
-const threadId = ref<string | null>(null)
+/** 正在进行中的工具调用名；收到文本增量即视为该工具已返回。 */
+const activeTool = ref<string | null>(null)
 const pendingActions = ref<PendingActionOut[]>([])
 const showPending = ref(false)
 const listHost = ref<HTMLDivElement | null>(null)
@@ -39,6 +41,25 @@ async function scrollToBottom(): Promise<void> {
   listHost.value?.scrollTo({ top: listHost.value.scrollHeight })
 }
 
+/** 载入该会话的历史消息（切换会话时调用；空会话得到空列表）。 */
+async function loadHistory(): Promise<void> {
+  messages.value = []
+  activeTool.value = null
+  if (!props.sessionId) return
+  try {
+    const history = await aiApi.sessionMessages(props.sessionId)
+    messages.value = history.map((item) => ({
+      role: item.role,
+      content: item.content,
+      tools: item.tools,
+    }))
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 401)) ElMessage.error('历史消息加载失败')
+  }
+}
+
+watch(() => props.sessionId, loadHistory, { immediate: true })
+
 /** 发送消息：消费 SSE 帧，增量渲染文本/工具状态。 */
 async function send(): Promise<void> {
   const text = input.value.trim()
@@ -47,31 +68,33 @@ async function send(): Promise<void> {
   messages.value.push({ role: 'user', content: text, tools: [] })
   const reply = appendAssistant()
   streaming.value = true
+  activeTool.value = null
   try {
-    await aiApi.chat(text, threadId.value, (event: ChatStreamEvent) => {
+    await aiApi.chat(text, props.sessionId, (event: ChatStreamEvent) => {
       handleEvent(event, reply)
     })
   } catch (error) {
     reply.content += error instanceof Error ? error.message : '对话请求失败'
   } finally {
     streaming.value = false
+    activeTool.value = null
     await scrollToBottom()
     await refreshPending()
+    emit('updated') // 首轮会产生会话索引行，让父页面刷新列表
   }
 }
 
+/** 事件分流：文本增量累积、工具调用进入进行中态。 */
 function handleEvent(event: ChatStreamEvent, reply: ChatMessage): void {
-  if (event.type === 'start') {
-    threadId.value = event.thread_id ?? threadId.value
-    return
-  }
   if (event.type === 'text' && event.delta) {
     reply.content += event.delta
+    activeTool.value = null
     void scrollToBottom()
     return
   }
   if (event.type === 'tool' && event.name) {
-    reply.tools.push(event.name)
+    activeTool.value = event.name
+    if (!reply.tools.includes(event.name)) reply.tools.push(event.name)
     void scrollToBottom()
     return
   }
@@ -119,7 +142,7 @@ onMounted(refreshPending)
 </script>
 
 <template>
-  <div class="agent-chat" :class="{ compact: props.compact }">
+  <div class="agent-chat">
     <div ref="listHost" class="msg-list">
       <div v-if="!messages.length" class="chat-empty">
         <p>我是你的家庭助理，可以查名册、看待办、查往来。</p>
@@ -131,6 +154,10 @@ onMounted(refreshPending)
         </div>
         <div class="msg-bubble">{{ item.content }}<span v-if="streaming && index === messages.length - 1 && item.role === 'assistant'" class="cursor">▍</span></div>
       </div>
+    </div>
+
+    <div v-if="activeTool" class="tool-running">
+      <el-tag size="small" type="info">正在调用 {{ activeTool }}…</el-tag>
     </div>
 
     <div v-if="showPending" class="pending-panel">
@@ -280,7 +307,8 @@ onMounted(refreshPending)
   border-top: 1px solid var(--crm-line);
   align-items: center;
 }
-.compact .msg-list {
-  padding: 12px;
+.tool-running {
+  padding: 4px 14px;
+  border-top: 1px solid var(--crm-line);
 }
 </style>
