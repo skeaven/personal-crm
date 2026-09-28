@@ -106,7 +106,10 @@ async def chat(
             yield _sse({"type": "error", "code": "llm_not_configured", "message": exc.message})
         except BusinessError as exc:
             yield _sse({"type": "error", "message": exc.message})
-        yield _sse({"type": "done"})
+        except Exception:  # 业务外异常（上游 500 等）也要喂给前端，否则流静默断开
+            yield _sse({"type": "error", "message": "对话处理失败，请稍后重试"})
+        finally:
+            yield _sse({"type": "done"})
 
     return StreamingResponse(
         event_stream(),

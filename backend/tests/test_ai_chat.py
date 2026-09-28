@@ -59,6 +59,40 @@ async def test_chat_streams_stub_events(client, make_user, login_headers, monkey
     assert {"type": "tool", "name": "get_upcoming_todos"} in events
 
 
+async def test_chat_emits_error_and_done_on_unexpected_exception(
+    client, make_user, login_headers, monkeypatch
+):
+    """agent 抛业务外异常（如 LLM API 500）时，客户端仍要拿到 error 帧与结束帧。
+
+    否则前端拿到的是断掉的无提示流；且索引行已被 rollback、checkpointer 已落盘，
+    变成不可达的遗孤对话（Review Focus 复审 #1）。
+    """
+    await make_user(username="demo")
+    headers = await login_headers("demo", "demo12345")
+
+    async def exploding_stream(db, user, llm, message, session_id):
+        raise RuntimeError("upstream 500")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr("agent.runner.stream_agent", exploding_stream)
+    await client.put(
+        "/api/v1/settings/ai",
+        json={"base_url": "http://127.0.0.1:9/v1", "api_key": "sk-x", "model": "m"},
+        headers=headers,
+    )
+
+    resp = await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "触发异常", "session_id": "sess-boom"},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    events = await _read_sse(resp)
+    assert any(e["type"] == "error" for e in events)
+    assert events[-1]["type"] == "done"
+
+
 async def test_pending_flow_http(client, make_user, login_headers):
     """提议确认 HTTP 全流程：入队（提交）→ 列表可见 → 确认执行 → 待办真实落库。"""
     demo, _ = await make_user(username="demo")
