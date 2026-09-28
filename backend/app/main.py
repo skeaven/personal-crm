@@ -1,7 +1,7 @@
 """应用入口：应用工厂 + MCP 端点 + 生产模式 SPA 静态托管（D2 一体化部署）。"""
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -61,19 +61,28 @@ async def _open_checkpointer():
 
     AsyncPostgresSaver 依赖 psycopg3（与业务用的 asyncpg 并存），
     连接串从既有的 DATABASE_URL 去掉方言前缀派生，不新增配置项。
+
+    两条约束同时成立：连接必须活到应用运行期（checkpointer 全程持有这一条
+    连接），而 try 只能兜住「建立连接 + setup」——yield 若落进 try，宿主生命
+    周期里的异常会被一并吞掉、并二次 yield，原始故障被换成 RuntimeError。
+    故用 AsyncExitStack 把「可失败的获取」与「必须盖住 yield 的存活期」拆开。
     """
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
     dsn = get_settings().database_url.replace("+asyncpg", "")
-    try:
-        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+    async with AsyncExitStack() as stack:
+        try:
+            checkpointer = await stack.enter_async_context(
+                AsyncPostgresSaver.from_conn_string(dsn)
+            )
             await checkpointer.setup()  # 官方要求：首次使用必须建表
             logger.info("会话持久化已启用（PostgreSQL checkpointer）")
-            yield checkpointer
-    except Exception as exc:  # 数据库暂时不可用不该让整个应用起不来
-        logger.warning("会话持久化不可用，降级为内存态：%s", exc)
-        yield InMemorySaver()
+        except Exception as exc:  # 数据库暂时不可用不该让整个应用起不来
+            logger.warning("会话持久化不可用，降级为内存态：%s", exc)
+            checkpointer = InMemorySaver()
+
+        yield checkpointer
 
 
 def create_app() -> FastAPI:
