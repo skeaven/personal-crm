@@ -1,10 +1,9 @@
 <script setup lang="ts">
-/** 应用主布局：侧边导航 + 内容区 + 全局 AI 悬浮球（任意页面可唤起对话浮层）。 */
+/** 应用主布局：侧边导航 + 内容区。助理为导航中的独立页面。 */
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ChatbubbleEllipsesOutline,
-  CloseOutline,
   GitNetworkOutline,
   LocationOutline,
   MenuOutline,
@@ -19,7 +18,6 @@ import {
 } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
 import { sealBrand } from '@/design/theme'
-import AgentChat from '@/components/AgentChat.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -28,6 +26,7 @@ const router = useRouter()
 /** 导航配置数组：新功能页在此登记，不改布局结构（扩展性约定 4）。 */
 const navItems = [
   { key: 'home', label: '主页', icon: HomeOutline, to: '/home' },
+  { key: 'assistant', label: '助理', icon: Sparkles, to: '/assistant' },
   { key: 'contacts', label: '名册', icon: PeopleOutline, to: '/contacts' },
   { key: 'graph', label: '图谱', icon: GitNetworkOutline, to: '/graph' },
   { key: 'map', label: '地图', icon: LocationOutline, to: '/map' },
@@ -43,9 +42,6 @@ const activeMenu = computed(() => {
   if (route.name === 'contact-detail') return '/contacts'
   return route.path
 })
-
-/** AI 悬浮球状态：浮层打开时内嵌对话组件。 */
-const chatOpen = ref(false)
 
 /** 窄屏（<768px，iPad 宽度）抽屉式导航：侧栏隐藏，菜单按钮唤起覆盖层。 */
 const menuOpen = ref(false)
@@ -111,22 +107,6 @@ function handleLogout(): void {
         <el-button text class="logout-btn" @click="handleLogout">退出登录</el-button>
       </div>
     </el-drawer>
-
-    <!-- AI 悬浮球：任意页面唤起对话浮层 -->
-    <button type="button" class="ai-fab" :class="{ open: chatOpen }" @click="chatOpen = !chatOpen">
-      <component :is="chatOpen ? CloseOutline : Sparkles" class="fab-icon" />
-    </button>
-    <transition name="fab-pop">
-      <div v-if="chatOpen" class="ai-float">
-        <div class="ai-float-head">
-          <span class="ai-float-title">AI 助手</span>
-          <el-button text @click="router.push('/assistant'); chatOpen = false">
-            独立页面
-          </el-button>
-        </div>
-        <AgentChat compact />
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -237,87 +217,6 @@ function handleLogout(): void {
 @media (max-width: 768px) {
   .app-content {
     padding: 64px 16px 20px; /* 顶部给悬浮菜单按钮留位，避免遮挡页内返回链接 */
-  }
-}
-
-/* ---- AI 悬浮球与浮层 ---- */
-.ai-fab {
-  position: fixed;
-  right: 26px;
-  bottom: 26px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: none;
-  background: var(--crm-seal);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: var(--crm-shadow-hover);
-  transition: transform var(--crm-ease);
-  z-index: 60;
-}
-.ai-fab:hover {
-  transform: scale(1.06);
-}
-.ai-fab:active {
-  transform: scale(0.96);
-}
-.fab-icon {
-  width: 24px;
-  height: 24px;
-  font-size: 24px;
-}
-.ai-float {
-  position: fixed;
-  right: 26px;
-  bottom: 90px;
-  width: 400px;
-  height: 560px;
-  max-height: calc(100vh - 130px);
-  background: var(--crm-canvas);
-  border: 1px solid var(--crm-line);
-  border-radius: var(--crm-radius-float);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: 60;
-}
-.ai-float-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--crm-line);
-}
-.ai-float-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-.fab-pop-enter-active,
-.fab-pop-leave-active {
-  transition:
-    opacity var(--crm-ease),
-    transform var(--crm-ease);
-}
-.fab-pop-enter-from,
-.fab-pop-leave-to {
-  opacity: 0;
-  transform: translateY(10px) scale(0.98);
-}
-@media (max-width: 768px) {
-  .ai-float {
-    right: 12px;
-    left: 12px;
-    width: auto;
-    bottom: 84px;
-  }
-  .ai-fab {
-    right: 16px;
-    bottom: 16px;
   }
 }
 </style>
