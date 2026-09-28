@@ -3,7 +3,8 @@
 职责：
 1. 把 ai/registry 的工具适配为 langchain 工具（以发起用户身份执行，D7）；
 2. 构造 deepagents 图并消费 astream 事件，归一为前端友好的事件字典；
-3. 多轮记忆：MemorySaver 单例 + thread_id 按用户隔离。
+3. 多轮记忆：checkpointer 由应用启动流程注入（持久化实例见 app/main.py），
+   thread_id 由用户 id + session_id 拼成，跨用户不串话。
 
 本文件之外禁止 import deepagents。
 """
@@ -15,13 +16,30 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from langchain_core.tools import StructuredTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ai.registry import ALL_TOOLS, build_args
 
-# 进程级单例：多轮对话记忆（thread_id 内含用户 id，避免串话）
-_CHECKPOINTER = InMemorySaver()
+# 会话记忆的 checkpointer：由应用启动流程注入（见 app/main.py 的 lifespan）。
+# 未注入时退回进程内内存——测试不跑 lifespan，降级路径也走这里。
+_CHECKPOINTER: BaseCheckpointSaver | None = None
+
+
+def set_checkpointer(checkpointer: BaseCheckpointSaver) -> None:
+    """注入会话持久化 checkpointer（应用启动时调用一次）。"""
+    global _CHECKPOINTER
+    _CHECKPOINTER = checkpointer
+
+
+def get_checkpointer() -> BaseCheckpointSaver:
+    """取当前 checkpointer；尚未注入时懒建一个进程内内存实例。"""
+    global _CHECKPOINTER
+    if _CHECKPOINTER is None:
+        _CHECKPOINTER = InMemorySaver()
+    return _CHECKPOINTER
+
 
 # 单次提问允许的 LLM 调用次数上限（超过即终止执行，防止跑很久）
 MODEL_CALL_LIMIT = 10
@@ -71,7 +89,7 @@ def _make_langchain_tool(ai_tool, db: AsyncSession, user):
 
 
 async def stream_agent(
-    db: AsyncSession, user, llm, message: str, thread_id: str
+    db: AsyncSession, user, llm, message: str, session_id: str
 ) -> AsyncIterator[dict]:
     """运行 agent 并产出归一事件流。
 
@@ -88,10 +106,11 @@ async def stream_agent(
         model=llm,
         tools=tools,
         system_prompt=SYSTEM_PROMPT,
-        checkpointer=_CHECKPOINTER,
+        checkpointer=get_checkpointer(),
         middleware=[ModelCallLimitMiddleware(run_limit=MODEL_CALL_LIMIT, exit_behavior="end")],
     )
-    config = {"configurable": {"thread_id": f"{user.id}:{thread_id}"}}
+    # thread_id 的拼装只发生在这里（业务侧只认 session_id）；带用户 id 避免跨用户串话
+    config = {"configurable": {"thread_id": f"{user.id}:{session_id}"}}
 
     emitted_tools: set[str] = set()
     produced_text = False

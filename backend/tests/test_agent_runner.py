@@ -31,7 +31,9 @@ async def test_stream_agent_injects_model_call_limit(db_session, make_user, monk
     from agent.runner import MODEL_CALL_LIMIT, stream_agent
 
     events = []
-    async for event in stream_agent(db_session, demo, llm=object(), message="hi", thread_id="t1"):
+    async for event in stream_agent(
+        db_session, demo, llm=object(), message="hi", session_id="t1"
+    ):
         events.append(event)
 
     middleware = captured["middleware"]
@@ -76,3 +78,44 @@ async def test_chat_sse_reports_limit_hint_when_silent(
     assert "上限" in texts
     tools = [e["name"] for e in events if e["type"] == "tool"]
     assert tools == ["get_stats"]
+
+
+async def test_checkpointer_defaults_to_in_memory():
+    """未注入时退回进程内内存：测试与降级路径都依赖这一点。"""
+    import agent.runner as runner
+
+    runner._CHECKPOINTER = None
+    checkpointer = runner.get_checkpointer()
+
+    assert checkpointer is not None
+    assert type(checkpointer).__name__ == "InMemorySaver"
+
+
+async def test_set_checkpointer_overrides_default():
+    """注入后 get_checkpointer 返回注入的实例（生产走这条）。"""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    import agent.runner as runner
+
+    injected = InMemorySaver()
+    runner.set_checkpointer(injected)
+
+    try:
+        assert runner.get_checkpointer() is injected
+    finally:
+        runner._CHECKPOINTER = None
+
+
+async def test_checkpointer_open_falls_back_when_unavailable(monkeypatch):
+    """checkpointer 建立失败不应让应用起不来——降级为内存态。"""
+    from app import main
+
+    def _explode(*args, **kwargs):
+        raise OSError("数据库连不上")
+
+    monkeypatch.setattr(
+        "langgraph.checkpoint.postgres.aio.AsyncPostgresSaver.from_conn_string", _explode
+    )
+
+    async with main._open_checkpointer() as checkpointer:
+        assert type(checkpointer).__name__ == "InMemorySaver"

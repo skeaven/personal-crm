@@ -55,16 +55,38 @@ def _mount_frontend(app: FastAPI) -> None:
         return FileResponse(dist_root / "index.html")
 
 
+@asynccontextmanager
+async def _open_checkpointer():
+    """打开会话持久化 checkpointer；不可用时降级为内存态，不阻断应用启动。
+
+    AsyncPostgresSaver 依赖 psycopg3（与业务用的 asyncpg 并存），
+    连接串从既有的 DATABASE_URL 去掉方言前缀派生，不新增配置项。
+    """
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    dsn = get_settings().database_url.replace("+asyncpg", "")
+    try:
+        async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+            await checkpointer.setup()  # 官方要求：首次使用必须建表
+            logger.info("会话持久化已启用（PostgreSQL checkpointer）")
+            yield checkpointer
+    except Exception as exc:  # 数据库暂时不可用不该让整个应用起不来
+        logger.warning("会话持久化不可用，降级为内存态：%s", exc)
+        yield InMemorySaver()
+
+
 def create_app() -> FastAPI:
     """组装 FastAPI 应用：路由注册、MCP 端点、异常处理、静态托管。"""
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        """宿主生命周期：启动时回收过期临时文件 + 承载 MCP 会话管理器。
+        """宿主生命周期：清理临时文件 + 持有会话 checkpointer + MCP 会话管理器。
 
         临时区清理只在启动时扫一次（个人量级足够；用户取消上传、上传中途失败
         都会留下无人引用的临时文件，没有这一步它们永远不会被回收）。
         """
+        from agent.runner import set_checkpointer
         from app.modules.ai.mcp_endpoint import mcp_lifespan
         from app.services import storage
 
@@ -72,8 +94,10 @@ def create_app() -> FastAPI:
         if removed:
             logger.info("启动清理：删除 %d 个过期临时文件", removed)
 
-        async with mcp_lifespan():
-            yield
+        async with _open_checkpointer() as checkpointer:
+            set_checkpointer(checkpointer)
+            async with mcp_lifespan():
+                yield
 
     application = FastAPI(title=get_settings().app_name, lifespan=lifespan)
     application.include_router(api_v1_router, prefix="/api/v1")
