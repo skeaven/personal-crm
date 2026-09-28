@@ -109,3 +109,16 @@ async def login_headers(client: AsyncClient, make_user):
         return await login_as(client, username, password)
 
     return _headers
+
+
+@pytest.fixture
+async def checkpointer(monkeypatch):
+    """把 runner 的 checkpointer 指到一个测试专用的内存实例。"""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    import agent.runner as runner
+
+    instance = InMemorySaver()
+    runner.set_checkpointer(instance)
+    yield instance
+    runner._CHECKPOINTER = None

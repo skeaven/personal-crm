@@ -5,17 +5,18 @@ chat 的聚合实现依赖 backend/agent/runner（deepagents 唯一封装点）�
 
 import json
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
 from app.core.errors import BusinessError
 from app.modules.ai import pending as pending_service
-from app.modules.ai import registry, semantic
+from app.modules.ai import registry, semantic, sessions
 from app.modules.ai.llm import LLMNotConfiguredError, require_llm
 from app.modules.auth.models import User
 
@@ -46,6 +47,25 @@ class ToolOut(BaseModel):
     name: str
     description: str
     risk: str
+
+
+class AiSessionOut(BaseModel):
+    """会话索引输出。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class HistoryMessageOut(BaseModel):
+    """历史消息：与流式事件的渲染形状一致，前端可复用同一套渲染。"""
+
+    role: str
+    content: str
+    tools: list[str] = []
 
 
 def _sse(event: dict) -> str:
@@ -90,6 +110,40 @@ async def chat(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/sessions", response_model=list[AiSessionOut])
+async def list_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AiSessionOut]:
+    """我的会话列表（按最后活跃倒序）。"""
+    return await sessions.list_sessions(db, current_user)
+
+
+@router.get("/sessions/{session_id}/messages", response_model=list[HistoryMessageOut])
+async def get_session_messages(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[HistoryMessageOut]:
+    """某会话的历史消息；不属于当前用户按 404 处理。"""
+    return await sessions.get_history(db, current_user, session_id)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """删除会话：索引行与 checkpointer 数据一并清掉。"""
+    from agent.runner import delete_history
+
+    await sessions.get_owned_session(db, current_user, session_id)
+    await delete_history(session_id, current_user.id)
+    await sessions.delete_session(db, current_user, session_id)
+    return Response(status_code=204)
 
 
 class RebuildOut(BaseModel):

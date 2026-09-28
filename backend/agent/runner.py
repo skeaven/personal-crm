@@ -149,3 +149,47 @@ async def stream_agent(
             "delta": f"（本次问题较复杂，已达单次执行上限 {MODEL_CALL_LIMIT} 次 LLM 调用，已停止。"
             "可以把问题拆小一点再问，或稍后重试。）",
         }
+
+
+def _to_history_messages(messages) -> list[dict]:
+    """把 LangChain 消息归一为前端可渲染的形状。
+
+    工具消息（ToolMessage）不进历史——它的调用已经记在发起它的 AI 消息的
+    tool_calls 上，单独列出来只会让用户看到一条没有上下文的噪音。
+    """
+    items: list[dict] = []
+    for message in messages or []:
+        role = {"human": "user", "ai": "assistant"}.get(getattr(message, "type", ""))
+        if role is None:
+            continue
+        items.append(
+            {
+                "role": role,
+                "content": _extract_text(getattr(message, "content", None)),
+                "tools": [
+                    call.get("name")
+                    for call in getattr(message, "tool_calls", None) or []
+                    if call.get("name")
+                ],
+            }
+        )
+    return items
+
+
+async def load_history(session_id: str, user_id: int) -> list[dict]:
+    """读取某会话的历史消息（归一形状）。
+
+    thread_id 的拼装只在这里发生：业务侧永远只认 session_id。
+    """
+    checkpointer = get_checkpointer()
+    config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
+    snapshot = await checkpointer.aget_tuple(config)
+    if snapshot is None:
+        return []
+    return _to_history_messages(snapshot.checkpoint.get("channel_values", {}).get("messages"))
+
+
+async def delete_history(session_id: str, user_id: int) -> None:
+    """删除某会话在 checkpointer 里的全部数据（线程级清理）。"""
+    checkpointer = get_checkpointer()
+    await checkpointer.adelete_thread(f"{user_id}:{session_id}")
