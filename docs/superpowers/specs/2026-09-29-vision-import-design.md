@@ -76,7 +76,7 @@
 - **上传**：输入区加 📎 按钮（隐藏 `<input type="file" accept="image/*">`）+ 对话区**拖拽**上传；选中/拖入即 `api.uploadTemp` → 本地 object URL 缩略图预览（可点 × 移除）；**只保留最后一张**（新选替换旧选）。上传失败（超限/类型不符）→ ElMessage 报错并清空。
 - **发送**：`aiApi.chat(text, sessionId, onEvent, images?)`——第 4 参可选；请求体带 `images: [tempPath]`；发送成功后清空预览；用户气泡内渲染缩略图（本地 object URL）。
 - **错误**：`code === "vision_unsupported"` → 气泡显示后端 message（含设置页引导）。
-- **确认面板**：`tool_name === "create_contact"` 时用中文标签映射渲染 payload（姓名 / 昵称 / 电话 / 单位 / 邮箱 / 微信 / QQ / 院校 / 所在地 / 备注），其余工具维持现有 `payloadText`。
+- **确认面板**：`tool_name === "create_contact"` 时用中文标签映射渲染 payload（层级 / 姓名 / 昵称 / 电话 / 单位 / 邮箱 / 微信 / QQ / 院校 / 所在地 / 备注；取值如 direct→直接），其余工具维持现有 `payloadText`。
 - **历史**：`［图片］` 文本标记随历史消息照常显示（无图）。
 
 ## 6. 测试
