@@ -1,4 +1,6 @@
-"""auth 模块 Pydantic 模式：登录请求与用户信息输出。"""
+"""auth 模块 Pydantic 模式：登录请求、用户信息与个人令牌。"""
+
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,3 +36,26 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class TokenIssueIn(BaseModel):
+    """签发个人令牌的请求：用途名，用于在列表里认出是给哪个客户端用的。"""
+
+    name: str = Field(min_length=1, max_length=100)
+
+
+class TokenOut(BaseModel):
+    """令牌列表条目：只有元信息，绝不含明文或哈希。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class TokenIssueOut(TokenOut):
+    """签发响应：比列表条目多一个明文 token，只在这一次返回。"""
+
+    token: str

@@ -1,8 +1,9 @@
 """ai 模块 /mcp 端点：工具注册表的 MCP Streamable HTTP 出口（D11）。
 
 - 工具单一实现源：registry.ALL_TOOLS 动态注册为 MCP 工具，与内部 agent 同源；
-- 鉴权：复用用户 JWT（个人访问令牌签发 UI 后补，ARCHITECTURE 已注明过渡态）；
-  JWT 在 ASGI 门卫层解析并写入 contextvar，工具执行以该用户身份进行（D7）；
+- 鉴权：JWT 与个人令牌（D11）并存——老客户端继续用 JWT，外部客户端用设置页
+  签发的个人令牌；身份在 ASGI 门卫层解析并写入 contextvar，工具执行以该用户
+  身份进行（D7）；
 - 每次工具调用独立开数据库会话（不依赖 FastAPI 请求作用域）。
 """
 
@@ -75,15 +76,45 @@ def _register_all() -> None:
 _register_all()
 
 
-class JwtGate:
-    """ASGI 门卫：校验 Bearer JWT，把用户写入 contextvar 后放行 MCP 子应用。"""
+async def _reject(scope, receive, send, message: str) -> None:
+    """统一的 401 响应；文案区分「没带」与「带了但无效」，便于客户端排查。"""
+    await JSONResponse({"message": message}, status_code=401)(scope, receive, send)
+
+
+async def _resolve_identity(token: str):
+    """Bearer 令牌 → 用户：先按 JWT 解析，不通再按个人令牌解析；都不通返回 None。"""
+    from app.core.db import get_session_factory
+    from app.modules.auth import service as auth_service
+    from app.modules.auth import tokens as token_service
+
+    try:
+        user_id = decode_access_token(token)
+    except Exception:  # noqa: BLE001 JWT 无效/过期不是错误，继续试个人令牌
+        user_id = None
+
+    factory = get_session_factory()
+    async with factory() as session:
+        user = None
+        if user_id is not None:
+            user = await auth_service.get_user_by_id(session, user_id)
+        if user is None:
+            user = await token_service.resolve(session, token)
+        if user is not None:
+            # 门卫层自己开事务：get_db 的「一请求一事务」管不到 ASGI 中间件，
+            # 不提交的话个人令牌的 last_used_at 刷新会随会话关闭被回滚。
+            await session.commit()
+        return user
+
+
+class AuthGate:
+    """ASGI 门卫：认 JWT 或个人令牌，把用户写入 contextvar 后放行 MCP 子应用。"""
 
     def __init__(self, asgi_app) -> None:
         """包住 streamable http 子应用。"""
         self.asgi_app = asgi_app
 
     async def __call__(self, scope, receive, send) -> None:
-        """非 HTTP 请求直接放行；HTTP 请求必须携带有效 JWT。"""
+        """非 HTTP 请求直接放行；HTTP 请求必须携带有效 JWT 或个人令牌。"""
         if scope["type"] != "http":
             await self.asgi_app(scope, receive, send)
             return
@@ -92,28 +123,12 @@ class JwtGate:
         auth = headers.get(b"authorization", b"").decode()
         token = auth.removeprefix("Bearer ").strip()
         if not token:
-            response = JSONResponse(
-                {"message": "缺少访问令牌"}, status_code=401
-            )
-            await response(scope, receive, send)
+            await _reject(scope, receive, send, "缺少访问令牌")
             return
 
-        from app.core.db import get_session_factory
-        from app.modules.auth.models import User
-
-        try:
-            user_id = decode_access_token(token)
-        except Exception:  # noqa: BLE001 令牌无效/过期一律 401
-            user_id = None
-        user = None
-        if user_id is not None:
-            factory = get_session_factory()
-            async with factory() as session:
-                user = await session.get(User, user_id)
-
+        user = await _resolve_identity(token)
         if user is None:
-            response = JSONResponse({"message": "访问令牌无效"}, status_code=401)
-            await response(scope, receive, send)
+            await _reject(scope, receive, send, "访问令牌无效")
             return
 
         mcp_current_user.set(user)
@@ -128,5 +143,5 @@ async def mcp_lifespan() -> AsyncIterator[None]:
 
 
 def get_mcp_asgi_app():
-    """返回带 JWT 门卫的 Streamable HTTP 子应用（main.py 挂载到 /mcp）。"""
-    return JwtGate(mcp_server.streamable_http_app())
+    """返回带鉴权门卫的 Streamable HTTP 子应用（main.py 挂载到 /mcp）。"""
+    return AuthGate(mcp_server.streamable_http_app())

@@ -83,7 +83,7 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | 前缀 | 模块 | 端点（现有 / 计划） |
 |---|---|---|
 | /api/v1/uploads | uploads | ✅ `POST /uploads/temp`（上传到临时区）、`GET /uploads/tmp/{user_id}/{filename}`（仅本人可读） |
-| /api/v1/auth | auth | login；计划：me、令牌管理 |
+| /api/v1/auth | auth | ✅ `POST /auth/login`、`GET|PUT /auth/me`（绑定"我是谁"）、个人令牌管理 `POST|GET /auth/tokens` + `DELETE /auth/tokens/{id}`（D11，明文仅签发时返回一次） |
 | /api/v1/contacts | contacts | 列表（tier/search/activity 过滤）、详情、创建、更新、升级、归档、同名检测、重要日期 CRUD（/{id}/dates）；计划：`GET /contacts/map-points`（地图页 choropleth+scatter 数据：坐标点 + 省份计数聚合） |
 | /api/v1/graph | graph | ✅ 关系类型字典（读+自定义新增）、关系边（建/删/视角化列表）、`GET /graph/data`（递归 CTE N 度展开，全图/中心模式） |
 | /api/v1/records | records | ✅ 活动（含参与者与**图片全量替换**，D18）/任务 CRUD；`GET /activities/images/{id}?size=thumb|full`（鉴权读图）；`/activities` 支持 `contact_id`/`limit`/`offset`；notes 端点随 L3 收尾 |
@@ -91,7 +91,7 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | /api/v1/funds | funds | ✅ 资金往来 CRUD + 结清状态机，多维过滤 |
 | /api/v1/dashboard | dashboard | ✅ `GET /dashboard/todos?bucket=`（待办四桶 × 五源聚合）；`GET /contacts/{id}/timeline`（联系人时间线三源全量倒序，路由挂 /contacts 前缀但实现在本聚合模块）；`GET /dashboard/stats`（主页统计卡：总数/近30天/半年未联系/待办数，口径与名册过滤联动） |
 | /api/v1/settings | settings | 运行时配置读写（页面 L4） |
-| /api/v1/ai、/mcp | ai | ✅ SSE 对话（POST /ai/chat，请求带 `session_id`、缺失则服务端补）、会话列表 `GET /ai/sessions`、删除 `DELETE /ai/sessions/{id}`、历史 `GET /ai/sessions/{id}/messages`、写入提议确认（/ai/pending/*）、工具清单（/ai/tools）、`/mcp` Streamable HTTP（对外，JWT 门卫）；agent 封装在 backend/agent/（deepagents 唯一 import 点）；`POST /ai/embeddings/rebuild`、`GET /ai/search?q=`（语义检索） |
+| /api/v1/ai、/mcp | ai | ✅ SSE 对话（POST /ai/chat，请求带 `session_id`、缺失则服务端补）、会话列表 `GET /ai/sessions`、删除 `DELETE /ai/sessions/{id}`、历史 `GET /ai/sessions/{id}/messages`、写入提议确认（/ai/pending/*）、工具清单（/ai/tools）、`/mcp` Streamable HTTP（对外，JWT 或个人令牌门卫）；agent 封装在 backend/agent/（deepagents 唯一 import 点）；`POST /ai/embeddings/rebuild`、`GET /ai/search?q=`（语义检索） |
 
 ## 5. 前端映射与组件规范
 
