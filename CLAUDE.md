@@ -65,4 +65,5 @@ api.py（路由/鉴权/出入参）→ service.py（业务门面）→ repositor
 - **迁移**放 `backend/alembic/versions/`（ruff 已排除该目录）：改模型后 `uv run alembic revision --autogenerate -m "..."`；新建表要连带更新 `ARCHITECTURE.md` 第 3 节的表归属。
 - **`.dockerignore` 不能删**，尤其 `**/.venv` 那行：否则宿主的 macOS venv 会覆盖镜像内 `uv sync` 装好的 Linux venv，backend 容器 `Failed to spawn: alembic` 后 exit 2 静默退出。
 - **镜像构建固定走阿里 PyPI 源**（清华/中科大源在 Docker Desktop VM 内取大索引页会 TLS 断开，实测不可用）；依赖在构建层已装好，所以运行期一律 `uv run --no-sync`，改 Dockerfile/compose 时别去掉 `--no-sync`。
+- **AI 历史读取不能直接读 checkpoint 的 `channel_values`**：deepagents 把 `messages` 声明为 `DeltaChannel`（增量快照），那里只有增量写入，必须经图重建 state（`graph.aget_state`，见 `backend/agent/runner.py::load_history`）。手搓全量 checkpoint 的测试会掩盖这个差异。
 - 本仓库已建 CodeGraph 索引（`.codegraph/`）：找符号、看调用关系与改动影响面优先 `codegraph explore "..."`，不要一上来就 grep + 逐文件读。

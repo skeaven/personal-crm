@@ -70,6 +70,52 @@ async def test_load_history_unknown_session_is_empty(checkpointer):
     assert await load_history("never-existed", user_id=1) == []
 
 
+async def test_load_history_reads_graph_run_thread(checkpointer):
+    """回归：真实跑过图的 thread 也要能读出历史。
+
+    上面几个用例手搓了「channel_values 里放全量 messages」的 checkpoint，而
+    deepagents 把 messages 声明为 DeltaChannel：图正常跑完后 channel_values 里
+    根本没有 messages，直接读它必然得到空历史（线上历史读空即此因）。
+    这里用假模型驱动真图跑一轮，再读历史。
+    """
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    class _EchoModel(BaseChatModel):
+        """不发声的假模型：只为把图跑起来产生 checkpoint，不产生真实调用。"""
+
+        @property
+        def _llm_type(self) -> str:
+            return "echo"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            return ChatResult(generations=[ChatGeneration(message=AIMessage("我查一下"))])
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    from deepagents import create_deep_agent
+
+    from agent.runner import load_history
+
+    agent = create_deep_agent(
+        model=_EchoModel(), tools=[], system_prompt="x", checkpointer=checkpointer
+    )
+    config = {"configurable": {"thread_id": "1:s3"}}
+    async for _ in agent.astream(
+        {"messages": [{"role": "user", "content": "老爸最近怎么样"}]},
+        stream_mode=["messages"],
+        config=config,
+    ):
+        pass
+
+    history = await load_history("s3", user_id=1)
+
+    assert [item["role"] for item in history] == ["user", "assistant"]
+    assert history[0]["content"] == "老爸最近怎么样"
+
+
 async def test_session_messages_requires_ownership(client, login_headers, make_user, db_session):
     """读别人会话的历史必须 404——越权读是红线（Review Focus #1）。"""
     from app.modules.ai.models import AiSession

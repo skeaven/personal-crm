@@ -15,6 +15,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
@@ -58,6 +59,44 @@ SYSTEM_PROMPT = """你是「个人名册」家庭关系管理系统的助理，�
 4. 用简体中文回答，简洁口语化；数字与姓名必须来自工具结果，不得虚构。"""
 
 
+class _SilentModel(BaseChatModel):
+    """读历史专用的占位模型：建图需要一个 model 实例，但读 state 不会调用它。
+
+    历史必须经图的 state 重建才拿得到（见 load_history），这里刻意不放真 LLM：
+    看历史不该依赖「LLM 配置此刻是否还在」。
+    """
+
+    @property
+    def _llm_type(self) -> str:
+        """模型标识，仅用于日志与序列化。"""
+        return "silent-placeholder"
+
+    def _generate(self, *args, **kwargs):
+        """占位模型永不参与推理；被调用说明用法错了。"""
+        raise RuntimeError("历史读取不应触发模型调用")
+
+    def bind_tools(self, tools, **kwargs):
+        """图构造期会绑定工具，原样返回自身即可。"""
+        return self
+
+
+def _build_agent(model: BaseChatModel, tools: list, checkpointer: BaseCheckpointSaver):
+    """构造 deepagents 图——对话与历史读取必须用同一套 channel 声明。
+
+    deepagents 的唯一 import 点（D6.1）。
+    """
+    from deepagents import create_deep_agent
+    from langchain.agents.middleware import ModelCallLimitMiddleware
+
+    return create_deep_agent(
+        model=model,
+        tools=tools,
+        system_prompt=SYSTEM_PROMPT,
+        checkpointer=checkpointer,
+        middleware=[ModelCallLimitMiddleware(run_limit=MODEL_CALL_LIMIT, exit_behavior="end")],
+    )
+
+
 def _extract_text(content: Any) -> str:
     """兼容各家模型的 content 形态：纯字符串或分段列表。"""
     if isinstance(content, str):
@@ -98,17 +137,8 @@ async def stream_agent(
     单次提问的 LLM 调用上限 MODEL_CALL_LIMIT（官方 ModelCallLimitMiddleware，
     超限优雅结束，防止 agent 对一个问题反复绕圈跑很久）。
     """
-    from deepagents import create_deep_agent  # 隔离点：唯一允许的 deepagents import
-    from langchain.agents.middleware import ModelCallLimitMiddleware
-
     tools = [_make_langchain_tool(tool, db, user) for tool in ALL_TOOLS]
-    agent = create_deep_agent(
-        model=llm,
-        tools=tools,
-        system_prompt=SYSTEM_PROMPT,
-        checkpointer=get_checkpointer(),
-        middleware=[ModelCallLimitMiddleware(run_limit=MODEL_CALL_LIMIT, exit_behavior="end")],
-    )
+    agent = _build_agent(llm, tools, get_checkpointer())
     # thread_id 的拼装只发生在这里（业务侧只认 session_id）；带用户 id 避免跨用户串话
     config = {"configurable": {"thread_id": f"{user.id}:{session_id}"}}
 
@@ -180,13 +210,16 @@ async def load_history(session_id: str, user_id: int) -> list[dict]:
     """读取某会话的历史消息（归一形状）。
 
     thread_id 的拼装只在这里发生：业务侧永远只认 session_id。
+
+    不能直接读 checkpoint 的 channel_values：deepagents 把 messages 声明为
+    DeltaChannel，那里只存增量写入，必须由图重建 state 才是完整消息列表。
     """
-    checkpointer = get_checkpointer()
     config = {"configurable": {"thread_id": f"{user_id}:{session_id}"}}
-    snapshot = await checkpointer.aget_tuple(config)
+    agent = _build_agent(_SilentModel(), [], get_checkpointer())
+    snapshot = await agent.aget_state(config)
     if snapshot is None:
         return []
-    return _to_history_messages(snapshot.checkpoint.get("channel_values", {}).get("messages"))
+    return _to_history_messages(snapshot.values.get("messages"))
 
 
 async def delete_history(session_id: str, user_id: int) -> None:
