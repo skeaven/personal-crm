@@ -8,8 +8,9 @@ RUN npm run build
 
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-# 境内构建固定走清华 PyPI 镜像（uv sync 网络超时是部署主要失败源）
-ENV UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+# 境内构建固定走阿里 PyPI 镜像。注意：清华/中科大源在 Docker Desktop 的 VM 内
+# 取大体积索引页时 TLS 会被掐断（SSL: UNEXPECTED_EOF），实测不可用，故不用。
+ENV UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev

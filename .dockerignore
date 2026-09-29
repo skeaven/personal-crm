@@ -1,0 +1,16 @@
+# 构建上下文排除清单。
+# 关键：backend/.venv 是宿主机（macOS）的虚拟环境，若不排除会被 `COPY backend/ .`
+# 覆盖掉镜像内 `uv sync` 建好的 Linux venv，导致容器启动时 uv 删venv重建 + --no-sync
+# 无依赖可装 → `Failed to spawn: alembic` → exit 2（容器静默退出）。
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+frontend/dist
+# 开发用配置不进镜像（生产配置由 compose 注入环境变量）
+backend/.env
+# 本地索引与版本库元数据，与构建无关且体积大
+.codegraph
+.git
