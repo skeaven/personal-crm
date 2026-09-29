@@ -21,6 +21,10 @@ dependencies = [
     "pillow>=12.3.0",
     "langgraph-checkpoint-postgres>=3.1.2",
     "psycopg[binary]>=3.3.6",
+    # httpx2（langchain-openai 的客户端）在构造期就会按环境变量建代理 transport：
+    # 宿主机若设了 all_proxy=socks5://…，缺 socksio 会直接 ImportError，
+    # 表现为"每次对话都返回通用错误帧"。这里显式带上 SOCKS 支持。
+    "socksio>=1.0.0",
 ]
 
 [dependency-groups]
