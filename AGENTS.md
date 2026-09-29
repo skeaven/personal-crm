@@ -23,6 +23,21 @@
 - 完成声明前必须验证：测试跑过、构建通过、关键路径人工核验过。可配合 superpowers 的 `verification-before-completion` skill。
 - 较大的功能先写实现计划（superpowers `writing-plans` / `brainstorming`），经用户确认后再动手。
 
+## 环境模型与更新纪律（用户指令，硬约束）
+
+三套环境，职责严格分开：
+
+| 环境 | 组成 | 何时更新 |
+|---|---|---|
+| **开发环境** | 宿主 `uvicorn`（8100，`--reload`）+ 宿主 Vite（5180，HMR）+ 共享 db 容器 | 日常：所有代码改动与验证都在这里做，用户需能实时看到前端变化 |
+| **测试环境** | 本机 docker-compose 全栈（`personal-crm-app` 容器 + db 容器） | **只在用户明确要求时** |
+| **生产环境** | 远程云服务器（后续提供） | **只在用户明确要求时** |
+
+- **数据库共享，运行时分开**：开发与测试共用 compose 的 `db` 容器（宿主机 5433）；两个环境的后端进程/容器必须各自独立。
+- 推论：正常开发时**测试环境的 `backend` 容器必须停掉**（`docker compose stop backend`），否则它占着 8100，Vite 的 `/api` 代理会打到测试后端，等于两个环境混用。`db` 容器全程保持运行。
+- 起开发环境 = `./dev.sh`（它只起 db 容器 + 宿主 uvicorn + Vite，不碰 backend 容器）。
+- 除非用户明说，**不要** rebuild 镜像、不要重启或更新测试/生产环境、不要在测试环境跑迁移或种子。
+
 ## 前端风格统一（用户指令，硬约束）
 
 - 视觉唯一事实源：`DESIGN.md` + `frontend/src/design/`（tokens.ts / theme.ts）。新组件/新页面必须消费这些 tokens，禁止硬编码颜色、圆角、字体、阴影。

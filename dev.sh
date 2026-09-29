@@ -16,6 +16,13 @@ if ! docker compose ps --status running db 2>/dev/null | grep -q personal-crm-db
 fi
 echo "[dev] 数据库就绪（5433）"
 
+# 环境纪律（见 AGENTS.md）：测试环境的 backend 容器若在跑会占着 8100，两套运行时不能混
+if docker compose ps --status running backend 2>/dev/null | grep -q personal-crm-app; then
+  echo "[dev] 测试环境 backend 容器正占用 8100。开发与测试的运行时必须分开，请先执行："
+  echo "        docker compose stop backend   # db 容器保留，两个环境共享数据库"
+  exit 1
+fi
+
 # 后端：uvicorn 8100
 if ! lsof -ti :8100 >/dev/null 2>&1; then
   echo "[dev] 启动后端（8100）…"
