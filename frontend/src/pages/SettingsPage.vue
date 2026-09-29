@@ -4,9 +4,10 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { embeddingsApi, settingsApi } from '@/api/ai'
 import { contactsApi } from '@/api/contacts'
+import { tokensApi } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
-import type { AiLlmConfigIn } from '@/api/types'
+import type { AiLlmConfigIn, TokenOut } from '@/api/types'
 
 const loading = ref(false)
 const testing = ref(false)
@@ -173,6 +174,65 @@ async function testAmap(): Promise<void> {
   }
 }
 
+// ---- 外部接入：MCP 个人令牌（D11）----
+const mcpTokens = ref<TokenOut[]>([])
+const tokenName = ref('')
+const tokenIssuing = ref(false)
+/** 签发后的一次性明文：只在这个对话框里出现，关掉就取不回（列表永远不含明文）。 */
+const issuedToken = ref('')
+const issuedDialog = ref(false)
+
+/** 载入令牌列表（已吊销的不出现）。 */
+async function loadTokens(): Promise<void> {
+  try {
+    mcpTokens.value = await tokensApi.list()
+  } catch {
+    mcpTokens.value = []
+  }
+}
+
+/** 签发令牌：拿到明文后立刻弹一次性对话框。 */
+async function issueToken(): Promise<void> {
+  tokenIssuing.value = true
+  try {
+    const created = await tokensApi.issue({ name: tokenName.value.trim() })
+    issuedToken.value = created.token
+    issuedDialog.value = true
+    tokenName.value = ''
+    await loadTokens()
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '签发失败')
+  } finally {
+    tokenIssuing.value = false
+  }
+}
+
+/** 吊销令牌：立刻失效，记录保留（软删）。 */
+async function revokeToken(tokenId: number): Promise<void> {
+  try {
+    await tokensApi.revoke(tokenId)
+    ElMessage.success('令牌已吊销')
+    await loadTokens()
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '吊销失败')
+  }
+}
+
+/** 复制明文；非安全上下文（http）下没有 clipboard API，退化为提示手动复制。 */
+async function copyToken(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(issuedToken.value)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选中复制')
+  }
+}
+
+/** 令牌时间只到「日」：够判断哪个令牌还在用，精确到分没有意义。 */
+function formatTokenDay(value: string | null): string {
+  return value ? new Date(value).toLocaleDateString('zh-CN') : '未使用'
+}
+
 // ---- 绑定"我是谁"（D15）：关系图视角与称谓推导的起点 ----
 const auth = useAuthStore()
 const bindingSaving = ref(false)
@@ -209,6 +269,7 @@ onMounted(() => {
   void loadConfig()
   void loadEmbedding()
   void loadAmap()
+  void loadTokens()
   void loadBinding()
 })
 </script>
@@ -332,6 +393,72 @@ onMounted(() => {
     </div>
 
     <header class="section-head">
+      <h2 class="section-title crm-display">外部接入（MCP 令牌）</h2>
+      <p class="section-sub">把名册接到 Claude Desktop 等支持 MCP 的客户端；令牌明文只在签发时显示一次</p>
+    </header>
+    <div class="form-card">
+      <el-form label-position="top">
+        <el-form-item label="用途名">
+          <el-input
+            v-model="tokenName"
+            placeholder="如 Claude Desktop、手机快捷指令"
+            data-test="token-name"
+          />
+        </el-form-item>
+        <div class="actions">
+          <el-button
+            type="primary"
+            :loading="tokenIssuing"
+            :disabled="!tokenName.trim()"
+            data-test="issue-token"
+            @click="issueToken"
+          >
+            签发令牌
+          </el-button>
+        </div>
+      </el-form>
+
+      <ul v-if="mcpTokens.length" class="token-list">
+        <li
+          v-for="token in mcpTokens"
+          :key="token.id"
+          class="token-item"
+          data-test="token-item"
+        >
+          <div class="token-main">
+            <span class="token-name">{{ token.name }}</span>
+            <span class="token-meta">
+              签发 {{ formatTokenDay(token.created_at) }} · 最后使用
+              {{ formatTokenDay(token.last_used_at) }}
+            </span>
+          </div>
+          <el-popconfirm
+            title="吊销后该令牌立刻失效，确定？"
+            confirm-button-text="吊销"
+            cancel-button-text="取消"
+            @confirm="revokeToken(token.id)"
+          >
+            <template #reference>
+              <el-button text size="small" type="danger">吊销</el-button>
+            </template>
+          </el-popconfirm>
+        </li>
+      </ul>
+      <p v-else class="token-empty">还没有令牌</p>
+    </div>
+
+    <el-dialog v-model="issuedDialog" title="令牌已签发" width="480px">
+      <p class="issue-hint">
+        这串令牌<strong>只显示这一次</strong>，关掉就取不回来。先粘到 MCP 客户端再关这个窗口。
+      </p>
+      <el-input :model-value="issuedToken" readonly data-test="issued-token" />
+      <template #footer>
+        <el-button type="primary" data-test="copy-token" @click="copyToken">复制</el-button>
+        <el-button @click="issuedDialog = false">我已保存</el-button>
+      </template>
+    </el-dialog>
+
+    <header class="section-head">
       <h2 class="section-title crm-display">我是谁</h2>
       <p class="section-sub">把账号绑定到名册里的联系人，关系图谱与 AI 称谓推导以这个节点为"我"</p>
     </header>
@@ -380,6 +507,43 @@ onMounted(() => {
 .hint {
   margin-bottom: 16px;
   max-width: 560px;
+}
+.token-list {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.token-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--crm-line);
+}
+.token-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.token-name {
+  font-size: 14px;
+}
+.token-meta {
+  font-size: 12px;
+  color: var(--crm-muted);
+}
+.token-empty {
+  margin: 18px 0 0;
+  color: var(--crm-muted);
+  font-size: 13px;
+}
+.issue-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--crm-muted);
 }
 .section-head {
   margin: 36px 0 12px;

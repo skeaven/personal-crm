@@ -15,6 +15,24 @@ export interface LoginResponse {
   user: UserOut
 }
 
+/** 个人访问令牌条目（只有元信息，绝不含明文与哈希） */
+export interface TokenOut {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+}
+
+/** 签发响应：明文 token 只在这一个响应里出现 */
+export interface TokenIssueOut extends TokenOut {
+  token: string
+}
+
+/** 签发个人令牌的请求 */
+export interface TokenIssueIn {
+  name: string
+}
+
 export interface DuplicateWarning {
   contact_id: number
   display_name: string
