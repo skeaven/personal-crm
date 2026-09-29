@@ -10,6 +10,7 @@ import type {
   HistoryMessageOut,
   PendingActionOut,
   RebuildOut,
+  SearchItemOut,
   ToolOut,
 } from './types'
 
@@ -77,6 +78,12 @@ export const aiApi = {
 export const embeddingsApi = {
   /** 重建语义索引（全量对账：新增/变更重算、消失清理）。 */
   rebuild: () => api.post<RebuildOut>('/ai/embeddings/rebuild'),
+}
+
+export const searchApi = {
+  /** 语义搜索：按含义跨类型检索（联系人/活动/礼物/资金/备注），权限在后端已过滤。 */
+  search: (q: string) =>
+    api.get<SearchItemOut[]>(`/ai/search?${new URLSearchParams({ q }).toString()}`),
 }
 
 export const settingsApi = {

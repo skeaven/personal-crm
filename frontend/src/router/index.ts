@@ -31,6 +31,7 @@ const router = createRouter({
         { path: 'graph', name: 'graph', component: () => import('@/pages/GraphPage.vue') },
         { path: 'map', name: 'map', component: () => import('@/pages/MapPage.vue') },
         { path: 'assistant', name: 'assistant', component: () => import('@/pages/ChatPage.vue') },
+        { path: 'search', name: 'search', component: () => import('@/pages/SearchPage.vue') },
         { path: 'settings', name: 'settings', component: () => import('@/pages/SettingsPage.vue') },
       ],
     },

@@ -337,6 +337,14 @@ export interface RebuildOut {
   removed: number
 }
 
+/** 语义搜索结果条目（按 cosine 距离升序） */
+export interface SearchItemOut {
+  entity_type: string
+  entity_id: number
+  content: string
+  distance: number
+}
+
 /** AI 会话索引（列表展示用） */
 export interface AiSessionOut {
   session_id: string

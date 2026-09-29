@@ -11,6 +11,7 @@ import {
   HeartOutline,
   HomeOutline,
   PeopleOutline,
+  SearchOutline,
   SettingsOutline,
   Sparkles,
   SwapHorizontalOutline,
@@ -27,6 +28,7 @@ const router = useRouter()
 const navItems = [
   { key: 'home', label: '主页', icon: HomeOutline, to: '/home' },
   { key: 'assistant', label: '助理', icon: Sparkles, to: '/assistant' },
+  { key: 'search', label: '搜索', icon: SearchOutline, to: '/search' },
   { key: 'contacts', label: '名册', icon: PeopleOutline, to: '/contacts' },
   { key: 'graph', label: '图谱', icon: GitNetworkOutline, to: '/graph' },
   { key: 'map', label: '地图', icon: LocationOutline, to: '/map' },
