@@ -284,7 +284,7 @@ onMounted(refreshPending)
       <el-button
         type="primary"
         :loading="streaming"
-        :disabled="!input.trim()"
+        :disabled="!input.trim() && !pendingImage"
         data-test="send"
         @click="send"
       >

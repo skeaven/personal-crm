@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.core.errors import BusinessError, NotFoundError
+from app.core.errors import BusinessError, NotFoundError, ValidationError
 from app.modules.ai import pending as pending_service
 from app.modules.ai import registry, semantic, sessions
 from app.modules.ai.llm import LLMNotConfiguredError, require_llm
@@ -78,18 +78,20 @@ def _sse(event: dict) -> str:
 def _load_image_data_uris(user: User, images: list[str] | None) -> list[str]:
     """校验并读取请求附图，返回 data URI 列表（直接可喂给视觉模型）。
 
-    三道关：路径必须位于本人临时区（storage.is_own_temp_path）、经
-    resolve_within_root 解析（防 ../ 穿越）、文件必须存在；任一不过按 404/422
-    拒绝。校验发生在 SSE 响应开始之前——流一开始状态码就改不了了。
+    两道关：路径必须解析到**本人临时区**内（storage.resolve_own_temp，同时
+    覆盖前缀归属与 ../ 穿越）、文件必须存在；任一不过一律 404。校验发生在
+    SSE 响应开始之前——流一开始状态码就改不了了。
     """
     from app.services import storage
 
     uris: list[str] = []
     for temp_path in images or []:
-        normalized = temp_path.strip().lstrip("/")
-        if not storage.is_own_temp_path(normalized, user.id):
-            raise NotFoundError("图片不存在")
-        path = storage.resolve_within_root(normalized)
+        try:
+            path = storage.resolve_own_temp(temp_path, user.id)
+        except ValidationError as exc:
+            # 前缀像本人的、解析后却不是（../ 穿越到他人临时区或正式区）：
+            # 一律按「不存在」回应，既不泄露路径规则也不泄露他人文件是否存在。
+            raise NotFoundError("图片不存在") from exc
         if not path.is_file():
             raise NotFoundError("图片不存在或已过期，请重新上传")
         encoded = base64.b64encode(path.read_bytes()).decode()

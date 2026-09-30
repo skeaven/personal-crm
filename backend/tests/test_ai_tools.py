@@ -199,3 +199,17 @@ async def test_create_contact_tool_queues_proposal(db_session, make_user):
     assert rows[0].payload["tier"] == "direct"
     assert rows[0].payload["phone"] == "13800000000"
     assert rows[0].payload["organization"] == "某某中学"
+
+
+async def test_create_contact_rejects_unknown_tier(db_session, make_user):
+    """tier 只接受 direct/edge：非法值必须在工具入口被 schema 拦下。
+
+    否则它会一路进 propose，到用户点「确认执行」时在 ContactCreate 炸成 500——
+    而 ValidationError 不是 BusinessError，approve 接不住，提议永远卡在 pending。
+    """
+    from pydantic import ValidationError
+
+    demo, _ = await make_user(username="demo")
+
+    with pytest.raises(ValidationError):
+        await _run_tool(db_session, demo, "create_contact", last_name="王", tier="vip")

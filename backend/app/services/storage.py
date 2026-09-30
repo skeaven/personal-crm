@@ -111,16 +111,29 @@ def is_own_temp_path(temp_path: str, user_id: int) -> bool:
     return temp_path.strip().lstrip("/").startswith(f"tmp/{user_id}/")
 
 
+def resolve_own_temp(temp_path: str, user_id: int) -> Path:
+    """解析「本人临时区」内的路径，返回绝对路径；任何越界一律 ValidationError。
+
+    为什么单独有这一个函数：is_own_temp_path 只是字符串前缀，resolve_within_root
+    只管「不逃出 upload 根」——`tmp/7/../../tmp/8/a.jpg` 同时满足这两者，却指向
+    别人的临时区。归属判权必须落在**解析后的真实路径**上，本函数是该判权的唯一
+    实现点（chat 读图与 promote_temp 认领都从这里过）。
+    """
+    if not is_own_temp_path(temp_path, user_id):
+        raise ValidationError("非法的临时文件路径")
+    path = resolve_within_root(temp_path.strip().lstrip("/"))
+    own_dir = (upload_root() / "tmp" / str(user_id)).resolve()
+    if path != own_dir and own_dir not in path.parents:
+        raise ValidationError("非法的临时文件路径")
+    return path
+
+
 def promote_temp(temp_path: str, user_id: int, kind: str) -> tuple[str, str]:
     """把临时文件移入正式区并生成缩略图，返回 (正式路径, 缩略图路径)。
 
     temp_path 必须位于该用户的临时区，否则拒绝——防止把他人临时文件认领进自己的记录。
     """
-    normalized = temp_path.strip().lstrip("/")
-    if not is_own_temp_path(temp_path, user_id):
-        raise ValidationError("非法的临时文件路径")
-
-    source = resolve_within_root(normalized)
+    source = resolve_own_temp(temp_path, user_id)
     if not source.is_file():
         raise ValidationError("临时文件不存在或已过期，请重新上传")
 

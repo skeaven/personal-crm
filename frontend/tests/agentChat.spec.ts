@@ -66,6 +66,23 @@ describe('AgentChat 图片', () => {
     expect(wrapper.find('.msg-image').exists()).toBe(true)
   })
 
+  it('只有图片没有文字时也能点发送（后端 message 契约给默认指令兜底）', async () => {
+    chat.mockImplementation(async (_t, _s, onEvent) => {
+      onEvent({ type: 'start', session_id: 's1' })
+      onEvent({ type: 'done' })
+    })
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+
+    await pickImage(wrapper)
+    await flushPromises()
+    // 不输入任何文字，直接点发送
+    await wrapper.get('[data-test="send"]').trigger('click')
+    await flushPromises()
+
+    expect(chat).toHaveBeenCalledWith('帮我看看这张图', 's1', expect.any(Function), ['tmp/9/card.png'])
+  })
+
   it('视觉不支持的错误帧原样显示引导文案', async () => {
     chat.mockImplementation(async (_t, _s, onEvent) => {
       onEvent({ type: 'start', session_id: 's1' })

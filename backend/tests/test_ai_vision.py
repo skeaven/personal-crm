@@ -47,19 +47,39 @@ async def test_chat_with_other_users_image_is_404(client, make_user):
     assert response.status_code == 404
 
 
-async def test_chat_with_escape_path_is_422(client, make_user):
-    """`../` 穿越能骗过字符串前缀归属检查，resolve_within_root 必须拦下。"""
+async def test_chat_with_escape_path_is_404(client, make_user):
+    """`../` 穿越（逃出 upload 根）一律按「不存在」回应，不泄露路径规则。"""
     demo, _ = await make_user(username="demo")
     headers = await login_as(client, "demo", "demo12345")
 
     response = await client.post(
         "/api/v1/ai/chat",
-        # 路径带本人 id 通过归属前缀，再用 ../ 逃出临时区
-        # 三层 ../ 才真正逃出临时区（两层恰好退回根目录内，本就不该拦）
+        # 路径带本人 id 通过归属前缀，三层 ../ 逃出 upload 根
         json={"message": "存下名片", "images": [f"tmp/{demo.id}/../../../secret.png"]},
         headers=headers,
     )
-    assert response.status_code == 422
+    assert response.status_code == 404
+
+
+async def test_chat_rejects_sibling_temp_area(client, make_user):
+    """两层 .. 留在 upload 根内、却指向他人临时区——前缀检查拦不住，必须 404。
+
+    这是「本人临时图」这条契约的真正考验：字符串前缀与 upload 根边界都满足，
+    只有解析后的包含性检查能发现它不在本人 tmp 子目录里。
+    """
+    owner, _ = await make_user(username="owner", password="pw12345678")
+    owner_headers = await login_as(client, "owner", "pw12345678")
+    victim = await _upload_image(client, owner_headers)
+
+    demo, _ = await make_user(username="demo", password="demo12345")
+    headers = await login_as(client, "demo", "demo12345")
+
+    response = await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "存下名片", "images": [f"tmp/{demo.id}/../../{victim}"]},
+        headers=headers,
+    )
+    assert response.status_code == 404
 
 
 async def test_chat_with_missing_image_is_404(client, make_user):
@@ -168,3 +188,36 @@ async def test_stream_agent_reports_vision_unsupported(db_session, make_user, mo
     with pytest.raises(_FakeUpstreamError):
         async for _ in stream_agent(db_session, demo, llm=object(), message="x", session_id="t2"):
             pass
+
+
+async def test_chat_passes_uploaded_image_as_png_data_uri(client, make_user, monkeypatch):
+    """正向全链路：真实上传的 PNG 经 chat 转成 image/png 的 data URI 交给 runner。
+
+    上面几条只覆盖拒绝路径；MIME 映射写错、base64 截断这类退化没有任何测试能发现。
+    """
+    captured: dict = {}
+
+    async def fake_stream(db, user, llm, message, session_id, images=None):
+        captured["images"] = images
+        yield {"type": "text", "delta": "ok"}
+
+    monkeypatch.setattr("agent.runner.stream_agent", fake_stream)
+    await make_user(username="demo")
+    headers = await login_as(client, "demo", "demo12345")
+    await client.put(
+        "/api/v1/settings/ai",
+        json={"base_url": "http://127.0.0.1:9/v1", "api_key": "sk-x", "model": "m"},
+        headers=headers,
+    )
+    temp_path = await _upload_image(client, headers)
+
+    response = await client.post(
+        "/api/v1/ai/chat",
+        json={"message": "存下名片", "images": [temp_path]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    uri = captured["images"][0]
+    assert uri.startswith("data:image/png;base64,")
+    assert base64.b64decode(uri.split(",", 1)[1]) == PNG_1PX

@@ -7,7 +7,7 @@ MCP 端点与内部 agent 都从这里消费同一份清单，禁止另设工具
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,7 +70,9 @@ class CreateActivityArgs(BaseModel):
 class CreateContactArgs(BaseModel):
     """建联系人入参（写入确认队列）：名片/截图上读得到的字段，全部可选。"""
 
-    tier: str = Field(default="direct", description="direct=直接联系人（默认）；信息量少给 edge")
+    tier: Literal["direct", "edge"] = Field(
+        default="direct", description="direct=直接联系人（默认）；信息量少给 edge"
+    )
     last_name: str = Field(default="", max_length=50)
     first_name: str = Field(default="", max_length=50)
     nickname: str | None = Field(default=None, max_length=100)

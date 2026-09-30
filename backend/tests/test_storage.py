@@ -147,3 +147,24 @@ async def test_app_startup_cleans_temp(monkeypatch):
         pass
 
     assert calls, "启动时没有调用 storage.cleanup_temp"
+
+
+def test_resolve_own_temp_rejects_sibling_temp_area():
+    """两层 .. 能留在 upload 根内却指向他人临时区——判权必须落在解析后的真实路径上。
+
+    is_own_temp_path 只是字符串前缀，resolve_within_root 只管「不逃出 upload 根」，
+    中间那层「不得逃出本人 tmp 子目录」得由 resolve_own_temp 自己守。
+    """
+    with pytest.raises(ValidationError):
+        storage.resolve_own_temp("tmp/7/../../tmp/8/a.png", user_id=7)
+
+
+def test_promote_temp_rejects_sibling_temp_path():
+    """同源写缺口：两层 .. 留在 upload 根内却指向他人临时区 → 必须被拒。
+
+    样本用真实存在的他人临时文件：否则「文件不存在」先抛，测不到防线本身。
+    """
+    victim = _write_fake_image(8)
+
+    with pytest.raises(ValidationError):
+        storage.promote_temp(f"tmp/7/../../{victim}", user_id=7, kind="activities")

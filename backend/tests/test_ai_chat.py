@@ -70,7 +70,10 @@ async def test_chat_emits_error_and_done_on_unexpected_exception(
     await make_user(username="demo")
     headers = await login_headers("demo", "demo12345")
 
-    async def exploding_stream(db, user, llm, message, session_id):
+    called = {"hit": False}
+
+    async def exploding_stream(db, user, llm, message, session_id, images=None):
+        called["hit"] = True
         raise RuntimeError("upstream 500")
         yield  # pragma: no cover
 
@@ -89,6 +92,7 @@ async def test_chat_emits_error_and_done_on_unexpected_exception(
 
     assert resp.status_code == 200
     events = await _read_sse(resp)
+    assert called["hit"], "stub 没被调用——签名不匹配时 TypeError 会被兜成同一个错误帧，用例空转"
     assert any(e["type"] == "error" for e in events)
     assert events[-1]["type"] == "done"
 
