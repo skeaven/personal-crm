@@ -3,6 +3,7 @@
  * 由页面持有 sessionId（切换会话即载入历史），不自己管理会话标识。 */
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { api } from '@/api/client'
 import { aiApi, type ChatStreamEvent } from '@/api/ai'
 import { ApiError } from '@/api/client'
 import { tokens } from '@/design/tokens'
@@ -13,6 +14,8 @@ interface ChatMessage {
   content: string
   /** 该条消息过程中的工具调用名（展示为状态行）。 */
   tools: string[]
+  /** 本轮带图时的本地预览地址（仅本次会话内存里；历史载入无图，见后端 ［图片］ 标记）。 */
+  imagePreview?: string
   /** 该条消息产生的待确认提议编号（点击可跳转确认）。 */
   pendingHint?: string
 }
@@ -28,6 +31,10 @@ const activeTool = ref<string | null>(null)
 const pendingActions = ref<PendingActionOut[]>([])
 const showPending = ref(false)
 const listHost = ref<HTMLDivElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploadingImage = ref(false)
+/** 待发送图片：上传临时区后留路径 + 本地预览；只保留最后一张，发送后清空。 */
+const pendingImage = ref<{ tempPath: string; previewUrl: string } | null>(null)
 
 /** 追加一条 assistant 消息并保持滚动到底部。 */
 function appendAssistant(): ChatMessage {
@@ -60,19 +67,59 @@ async function loadHistory(): Promise<void> {
 
 watch(() => props.sessionId, loadHistory, { immediate: true })
 
-/** 发送消息：消费 SSE 帧，增量渲染文本/工具状态。 */
+/** 选中/拖入图片：先传临时区再预览。新图替换旧图，并回收旧预览的 object URL。 */
+async function acceptImage(file: File): Promise<void> {
+  uploadingImage.value = true
+  const previous = pendingImage.value
+  try {
+    const { temp_path } = await api.uploadTemp(file)
+    if (previous) URL.revokeObjectURL(previous.previewUrl)
+    pendingImage.value = { tempPath: temp_path, previewUrl: URL.createObjectURL(file) }
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '图片上传失败')
+  } finally {
+    uploadingImage.value = false
+  }
+}
+
+function clearImage(): void {
+  if (pendingImage.value) URL.revokeObjectURL(pendingImage.value.previewUrl)
+  pendingImage.value = null
+}
+
+function onFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) void acceptImage(file)
+  input.value = '' // 允许再次选择同一张图
+}
+
+function onDrop(event: DragEvent): void {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) void acceptImage(file)
+}
+
+/** 发送消息：消费 SSE 帧，增量渲染文本/工具状态。带图可以没有文字（给默认指令）。 */
 async function send(): Promise<void> {
   const text = input.value.trim()
-  if (!text || streaming.value) return
+  if ((!text && !pendingImage.value) || streaming.value) return
   input.value = ''
-  messages.value.push({ role: 'user', content: text, tools: [] })
+  const imageTemp = pendingImage.value?.tempPath
+  const preview = pendingImage.value?.previewUrl
+  clearImage()
+  messages.value.push({ role: 'user', content: text, tools: [], imagePreview: preview })
   const reply = appendAssistant()
   streaming.value = true
   activeTool.value = null
   try {
-    await aiApi.chat(text, props.sessionId, (event: ChatStreamEvent) => {
-      handleEvent(event, reply)
-    })
+    await aiApi.chat(
+      text || '帮我看看这张图',
+      props.sessionId,
+      (event: ChatStreamEvent) => {
+        handleEvent(event, reply)
+      },
+      imageTemp ? [imageTemp] : [],
+    )
   } catch (error) {
     reply.content += error instanceof Error ? error.message : '对话请求失败'
   } finally {
@@ -142,7 +189,7 @@ onMounted(refreshPending)
 </script>
 
 <template>
-  <div class="agent-chat">
+  <div class="agent-chat" @dragover.prevent @drop.prevent="onDrop">
     <div ref="listHost" class="msg-list">
       <div v-if="!messages.length" class="chat-empty">
         <p>我是你的家庭助理，可以查名册、看待办、查往来。</p>
@@ -152,6 +199,7 @@ onMounted(refreshPending)
         <div v-for="tool in item.tools" :key="tool" class="msg-tool">
           <el-tag size="small">{{ tool }}</el-tag>
         </div>
+        <img v-if="item.imagePreview" class="msg-image" :src="item.imagePreview" alt="附图" />
         <div class="msg-bubble">{{ item.content }}<span v-if="streaming && index === messages.length - 1 && item.role === 'assistant'" class="cursor">▍</span></div>
       </div>
     </div>
@@ -178,7 +226,20 @@ onMounted(refreshPending)
       <p v-if="!pendingActions.length" class="pending-empty">没有待确认的提议</p>
     </div>
 
+    <div v-if="pendingImage" class="image-preview" data-test="pending-image">
+      <img :src="pendingImage.previewUrl" alt="待发送图片" />
+      <el-button text size="small" @click="clearImage">移除</el-button>
+    </div>
+
     <div class="composer">
+      <input
+        ref="fileInput"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        class="file-hidden"
+        @change="onFileChange"
+      />
+      <el-button text :loading="uploadingImage" @click="fileInput?.click()">📎</el-button>
       <el-button
         text
         :color="pendingActions.length ? tokens.color.seal : undefined"
@@ -186,13 +247,21 @@ onMounted(refreshPending)
       >
         待确认{{ pendingActions.length ? ` ${pendingActions.length}` : '' }}
       </el-button>
+      <!-- data-test 挂组件上会透传到内层 input，选择器直接可用（见 SearchPage 先例） -->
       <el-input
         v-model="input"
+        data-test="chat-input"
         :placeholder="streaming ? '助手思考中…' : '问我任何事，或让我帮你记一笔'"
         :disabled="streaming"
         @keydown.enter.prevent="send"
       />
-      <el-button type="primary" :loading="streaming" :disabled="!input.trim()" @click="send">
+      <el-button
+        type="primary"
+        :loading="streaming"
+        :disabled="!input.trim()"
+        data-test="send"
+        @click="send"
+      >
         发送
       </el-button>
     </div>
@@ -249,6 +318,27 @@ onMounted(refreshPending)
 }
 .msg.assistant .msg-bubble {
   background: var(--crm-bone);
+  border: 1px solid var(--crm-line);
+}
+.file-hidden {
+  display: none;
+}
+.image-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+.image-preview img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: var(--crm-radius-control);
+  border: 1px solid var(--crm-line);
+}
+.msg-image {
+  max-width: 180px;
+  border-radius: var(--crm-radius-control);
   border: 1px solid var(--crm-line);
 }
 .cursor {

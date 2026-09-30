@@ -44,13 +44,23 @@ export const aiApi = {
    * 对话流：POST + SSE。onEvent 逐帧回调；返回 Promise 在流结束时 resolve。
    * 手工 fetch（EventSource 不支持 POST/鉴权头）。
    */
-  chat: async (message: string, sessionId: string | null, onEvent: (event: ChatStreamEvent) => void) => {
+  chat: async (
+    message: string,
+    sessionId: string | null,
+    onEvent: (event: ChatStreamEvent) => void,
+    images: string[] = [],
+  ) => {
     const auth = await import('@/stores/auth')
     const store = auth.useAuthStore()
     const response = await fetch('/api/v1/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${store.token}` },
-      body: JSON.stringify({ message, session_id: sessionId }),
+      // images 为空时不带该字段（undefined 不序列化），后端契约向后兼容
+      body: JSON.stringify({
+        message,
+        session_id: sessionId,
+        images: images.length ? images : undefined,
+      }),
     })
     if (!response.ok || !response.body) {
       throw new Error(`对话请求失败（${response.status}）`)
