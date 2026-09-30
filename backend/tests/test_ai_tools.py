@@ -36,6 +36,7 @@ async def test_registry_completeness(client, make_user):
         "get_stats",
         "create_task",
         "create_activity",
+        "create_contact",
     } <= set(names)
     assert all(tool.risk in ("read", "write_queue") for tool in registry.ALL_TOOLS)
 
@@ -175,3 +176,26 @@ async def test_kinship_of_tool(db_session, make_user):
     out = await _run_tool(db_session, demo, "kinship_of", contact_id=uncle.id)
     assert "舅舅" in out
     assert "长辈" in out
+
+
+async def test_create_contact_tool_queues_proposal(db_session, make_user):
+    """create_contact 进确认队列、不触达联系人表；卡片字段原样进 payload。"""
+    demo, _ = await make_user(username="demo")
+
+    out = await _run_tool(
+        db_session, demo, "create_contact",
+        last_name="王", nickname="王姨", organization="某某中学", phone="13800000000",
+    )
+
+    assert "提议" in out
+
+    from sqlalchemy import select
+
+    from app.modules.ai.models import PendingAction
+
+    rows = list((await db_session.execute(select(PendingAction))).scalars())
+    assert len(rows) == 1
+    assert rows[0].tool_name == "create_contact"
+    assert rows[0].payload["tier"] == "direct"
+    assert rows[0].payload["phone"] == "13800000000"
+    assert rows[0].payload["organization"] == "某某中学"

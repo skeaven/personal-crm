@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BusinessError, ValidationError
@@ -65,6 +65,32 @@ class CreateActivityArgs(BaseModel):
     occurred_date: str = Field(description="活动日期 YYYY-MM-DD")
     participant_names: list[str] = Field(default_factory=list, description="参与者姓名/昵称")
     location: str | None = Field(default=None, max_length=200)
+
+
+class CreateContactArgs(BaseModel):
+    """建联系人入参（写入确认队列）：名片/截图上读得到的字段，全部可选。"""
+
+    tier: str = Field(default="direct", description="direct=直接联系人（默认）；信息量少给 edge")
+    last_name: str = Field(default="", max_length=50)
+    first_name: str = Field(default="", max_length=50)
+    nickname: str | None = Field(default=None, max_length=100)
+    organization: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    qq: str | None = Field(default=None, max_length=30)
+    wechat: str | None = Field(default=None, max_length=50)
+    email: str | None = Field(default=None, max_length=120)
+    school_name: str | None = Field(default=None, max_length=100)
+    bio: str | None = None
+    location: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_name_presence(self) -> "CreateContactArgs":
+        """与 ContactCreate 同一最小信息集：姓、名、昵称至少一项，否则没法定位到人。"""
+        if not any(
+            [self.last_name.strip(), self.first_name.strip(), (self.nickname or "").strip()]
+        ):
+            raise ValueError("姓、名、昵称至少填写一项")
+        return self
 
 
 # ---------- 查询类工具（read，直执行） ----------
@@ -159,6 +185,30 @@ async def _run_semantic_search(db: AsyncSession, user, args: SemanticSearchArgs)
         for r in results
     ]
     return "语义相关的记录：\n" + "\n".join(lines)
+
+
+async def _run_queue_create_contact(db: AsyncSession, user, args: CreateContactArgs) -> str:
+    """建联系人提议入队：payload 即联系人字段，同名拦截延后到确认执行时。"""
+    from app.modules.ai import pending as pending_service
+
+    payload: dict[str, Any] = {
+        "tier": args.tier,
+        "last_name": args.last_name,
+        "first_name": args.first_name,
+    }
+    for key in (
+        "nickname", "organization", "phone", "qq",
+        "wechat", "email", "school_name", "bio", "location",
+    ):
+        value = getattr(args, key)
+        if value:
+            payload[key] = value
+    action = await pending_service.propose(db, user, "create_contact", payload)
+    return (
+        f"已生成联系人提议（编号 {action.id}，待确认）："
+        f"{args.last_name}{args.first_name}{args.nickname or ''}。"
+        f"需要用户在界面确认后才会真正创建。"
+    )
 
 
 async def _run_stats(db: AsyncSession, user, args: EmptyArgs) -> str:
@@ -289,6 +339,12 @@ ALL_TOOLS: list[AiTool] = [
         risk="write_queue",
         args_schema=CreateActivityArgs,
         run=_run_queue_create_activity,
+    ),    AiTool(
+        name="create_contact",
+        description="录入一个新联系人（口述或名片/截图识别均可，需用户确认后生效）；提议前先用 search_contacts 查同名",
+        risk="write_queue",
+        args_schema=CreateContactArgs,
+        run=_run_queue_create_contact,
     ),
 ]
 
