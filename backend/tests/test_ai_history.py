@@ -129,3 +129,19 @@ async def test_session_messages_requires_ownership(client, login_headers, make_u
     response = await client.get("/api/v1/ai/sessions/owned-hist/messages", headers=headers)
 
     assert response.status_code == 404
+
+async def test_history_marks_multimodal_message():
+    """带图片分段的消息在历史里加 ［图片］ 前缀（本体不回显，但「有图」这个事实不丢）。"""
+    from langchain_core.messages import HumanMessage
+
+    from agent.runner import _to_history_messages
+
+    multimodal = HumanMessage(
+        content=[
+            {"type": "text", "text": "存下这张名片"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+        ]
+    )
+    items = _to_history_messages([multimodal])
+    assert items[0]["role"] == "user"
+    assert items[0]["content"] == "［图片］存下这张名片"

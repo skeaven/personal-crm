@@ -215,10 +215,18 @@ def _to_history_messages(messages) -> list[dict]:
         role = {"human": "user", "ai": "assistant"}.get(getattr(message, "type", ""))
         if role is None:
             continue
+        content = getattr(message, "content", None)
+        text = _extract_text(content)
+        # 多模态消息（文本+图片分段）：图片本体不进历史（渲染不了也很大），
+        # 但「这条消息带过图」的事实要用标记留住，否则用户看历史会莫名断片。
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and part.get("type") == "image_url" for part in content
+        ):
+            text = f"［图片］{text}"
         items.append(
             {
                 "role": role,
-                "content": _extract_text(getattr(message, "content", None)),
+                "content": text,
                 "tools": [
                     call.get("name")
                     for call in getattr(message, "tool_calls", None) or []
