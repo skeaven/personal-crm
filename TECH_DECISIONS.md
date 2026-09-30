@@ -32,6 +32,7 @@
 | D18 | **图片存储与两阶段上传**：临时区→正式区，表单 JSON 携带路径；读取走鉴权端点；缩略图 400px | ✅ | 2026-09-25 |
 | D19 | **联系人往来 Tabs 化**：三 Tab 各自分页，前端不再用聚合接口（保留给 AI 工具）；列表接口 limit 默认 20 | ✅ | 2026-09-25 |
 | D20 | **助理会话持久化**：session（业务）/ thread（LangGraph）分层命名；`ai_sessions` 索引表 + `AsyncPostgresSaver`；session_id 前端生成 | ✅ | 2026-09-27 |
+| D21 | **视觉导入**：与 agent 同一 LLM（被动检测视觉能力，不做模型名启发式）；图片作多模态消息直通 agent；落库一律经既有确认队列（不引入 interrupt） | ✅ | 2026-09-30 |
 
 ---
 
@@ -281,3 +282,10 @@
   5. **首轮 chat 顺手 upsert 索引行**（`ON CONFLICT` 语义，已存在只更新活跃时间，主键撞车属他人则 404），无独立「创建会话」端点。
 - **理由**：内存态丢历史是本次根因；`AsyncPostgresSaver` 是 LangGraph 既定持久化方式，破坏性最小。
 - **影响**：**引入第二个数据库驱动 psycopg3**（与 asyncpg 并存，前者仅服务 checkpointer）；`ChatIn.thread_id` 更名为 `session_id`（破坏性、前端同步改）。
+
+## D21 视觉导入：同模型 + 直通 agent + 既有确认队列 ✅（2026-09-30，落实 R3）
+
+- **同模型**：视觉解析复用运行时 LLM 配置（D6.2），不新增配置项；模型不支持视觉以真实上游 4xx 为准，chat 对带图请求给 `vision_unsupported` 专属错误帧（附上游摘要），不做模型名启发式。
+- **直通 agent**：图片按 OpenAI 多模态格式并入消息（`POST /ai/chat` 的 `images` 字段，≤1 张 data URI），agent 自主选择工具；不建独立抽取管线——那会绕开工具注册表与 /mcp。
+- **确认走既有队列**：新工具 `create_contact`（write_queue）与 `create_task`/`create_activity` 同一红线，`EXECUTORS` 执行器走 `contacts_service.create_contact`，同名拦截不绕过。
+- 影响图片来源：`images` 指向本人临时区（`POST /uploads/temp`，D18），端点校验归属/穿越/存在性后转 data URI，临时文件由既有 TTL 清理回收。
