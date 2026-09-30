@@ -66,4 +66,5 @@ api.py（路由/鉴权/出入参）→ service.py（业务门面）→ repositor
 - **`.dockerignore` 不能删**，尤其 `**/.venv` 那行：否则宿主的 macOS venv 会覆盖镜像内 `uv sync` 装好的 Linux venv，backend 容器 `Failed to spawn: alembic` 后 exit 2 静默退出。
 - **镜像构建固定走阿里 PyPI 源**（清华/中科大源在 Docker Desktop VM 内取大索引页会 TLS 断开，实测不可用）；依赖在构建层已装好，所以运行期一律 `uv run --no-sync`，改 Dockerfile/compose 时别去掉 `--no-sync`。
 - **AI 历史读取不能直接读 checkpoint 的 `channel_values`**：deepagents 把 `messages` 声明为 `DeltaChannel`（增量快照），那里只有增量写入，必须经图重建 state（`graph.aget_state`，见 `backend/agent/runner.py::load_history`）。手搓全量 checkpoint 的测试会掩盖这个差异。
+- **本人临时区的判权必须落在解析后的路径上**：`resolve_within_root` 只管「不逃出 upload 根」，`is_own_temp_path` 只是字符串前缀——`tmp/7/../../tmp/8/a.jpg` 同时满足两者却指向他人文件。归属判权一律走 `storage.resolve_own_temp`（唯一实现点，chat 读图与 `promote_temp` 认领共用）。
 - 本仓库已建 CodeGraph 索引（`.codegraph/`）：找符号、看调用关系与改动影响面优先 `codegraph explore "..."`，不要一上来就 grep + 逐文件读。
