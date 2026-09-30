@@ -177,7 +177,33 @@ async function decide(action: PendingActionOut, approve: boolean): Promise<void>
   }
 }
 
+/** 工具名 → 中文（确认面板标题）；未映射的新工具回退原名。 */
+const TOOL_LABELS: Record<string, string> = {
+  create_task: '建待办',
+  create_activity: '记活动',
+  create_contact: '建联系人',
+}
+const CONTACT_FIELD_LABELS: Record<string, string> = {
+  tier: '层级', last_name: '姓', first_name: '名', nickname: '昵称',
+  organization: '单位', phone: '电话', qq: 'QQ', wechat: '微信',
+  email: '邮箱', school_name: '院校', location: '所在地', bio: '备注',
+}
+const CONTACT_TIER_LABELS: Record<string, string> = { direct: '直接', edge: '边缘' }
+
+/** create_contact 提议用中文标签渲染——确认的前提是看懂在确认什么。 */
+function contactPayloadText(payload: Record<string, unknown>): string {
+  return Object.entries(payload)
+    .map(([key, value]) => {
+      const shown = Array.isArray(value)
+        ? value.join('、')
+        : CONTACT_TIER_LABELS[String(value)] ?? String(value ?? '')
+      return `${CONTACT_FIELD_LABELS[key] ?? key}: ${shown}`
+    })
+    .join(' · ')
+}
+
 function payloadText(action: PendingActionOut): string {
+  if (action.tool_name === 'create_contact') return contactPayloadText(action.payload)
   const parts = Object.entries(action.payload).map(([key, value]) => {
     const shown = Array.isArray(value) ? value.join('、') : String(value ?? '')
     return `${key}: ${shown}`
@@ -215,7 +241,7 @@ onMounted(refreshPending)
       </div>
       <div v-for="action in pendingActions" :key="action.id" class="pending-item">
         <div class="pending-title">
-          <el-tag size="small" type="warning">{{ action.tool_name }}</el-tag>
+          <el-tag size="small" type="warning">{{ TOOL_LABELS[action.tool_name] ?? action.tool_name }}</el-tag>
           <span>{{ payloadText(action) }}</span>
         </div>
         <div class="pending-actions">

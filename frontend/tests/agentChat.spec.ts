@@ -88,3 +88,55 @@ describe('AgentChat 图片', () => {
     expect(wrapper.text()).toContain('设置页')
   })
 })
+
+describe('AgentChat 确认面板', () => {
+  /** 面板默认收起（showPending=false），先点「待确认」按钮展开再断言。 */
+  async function openPending(wrapper: ReturnType<typeof mount>): Promise<void> {
+    const toggle = wrapper.findAll('button').find((b) => b.text().includes('待确认'))
+    await toggle?.trigger('click')
+    await flushPromises()
+  }
+
+
+  it('create_contact 提议用中文标签渲染（层级转译为直接/边缘）', async () => {
+    pendingList.mockResolvedValue([
+      {
+        id: 1,
+        tool_name: 'create_contact',
+        payload: { tier: 'direct', last_name: '王', nickname: '王姨', phone: '13800000000' },
+        status: 'pending',
+        result: null,
+        created_at: '2026-09-30T00:00:00Z',
+      },
+    ])
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    const text = wrapper.get('.pending-item').text()
+    expect(text).toContain('建联系人')
+    expect(text).toContain('层级: 直接')
+    expect(text).toContain('昵称: 王姨')
+    expect(text).toContain('电话: 13800000000')
+    expect(text).not.toContain('phone:')
+  })
+
+  it('其他工具提议维持键值拼写，工具名走中文映射', async () => {
+    pendingList.mockResolvedValue([
+      {
+        id: 2,
+        tool_name: 'create_task',
+        payload: { title: '给老爸打电话' },
+        status: 'pending',
+        result: null,
+        created_at: '2026-09-30T00:00:00Z',
+      },
+    ])
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('title: 给老爸打电话')
+    expect(wrapper.text()).toContain('建待办')
+  })
+})
