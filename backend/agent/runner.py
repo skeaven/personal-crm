@@ -57,7 +57,9 @@ SYSTEM_PROMPT = """你是「个人名册」家庭关系管理系统的助理，�
    - 某人的交往记录 → get_contact_timeline
    - 临近的事 → get_upcoming_todos
 3. 记待办/记活动等写入操作会先进入待确认队列，你需要告知用户"已生成提议，请在确认面板确认"。
-4. 用简体中文回答，简洁口语化；数字与姓名必须来自工具结果，不得虚构。"""
+4. 用简体中文回答，简洁口语化；数字与姓名必须来自工具结果，不得虚构。
+5. 用户发来名片/聊天截图要求录入时：先用 search_contacts 查同名，再调
+   create_contact 生成提议（需用户确认后生效）；图里没有的字段留空，禁止编造。"""
 
 
 class _SilentModel(BaseChatModel):
@@ -187,10 +189,11 @@ async def stream_agent(
         # 「处理失败」；判据是请求特征（images 非空）而非错误文本匹配。
         status = getattr(exc, "status_code", None)
         if images and isinstance(status, int) and 400 <= status < 500:
+            hint = f"当前模型不支持图片输入，请在设置页换用支持视觉的模型（上游：{str(exc)[:200]}）"
             yield {
                 "type": "error",
                 "code": "vision_unsupported",
-                "message": f"当前模型不支持图片输入，请在设置页换用支持视觉的模型（上游：{str(exc)[:200]}）",
+                "message": hint,
             }
             return
         raise  # 不带图（或其他异常）照旧抛给 api 层的通用兜底帧

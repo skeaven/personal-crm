@@ -89,3 +89,50 @@ async def test_family_member_can_approve(db_session, make_user):
 
     task = (await db_session.execute(select(Task))).scalar_one()
     assert task.owner_user_id == demo.id
+
+
+async def test_approve_executes_create_contact(db_session, make_user):
+    """确认建联系人：走 contacts 正常创建路径，电话落库，归属为提议人（D7）。"""
+    demo, _ = await make_user(username="demo")
+
+    action = await pending_service.propose(
+        db_session, demo, "create_contact",
+        {"tier": "direct", "last_name": "王", "nickname": "王姨", "phone": "13800000000"},
+    )
+    approved = await pending_service.approve(db_session, demo, action.id)
+
+    assert approved.status == "executed"
+    assert approved.result["ok"] is True
+    assert "王姨" in approved.result["message"]
+
+    from sqlalchemy import select
+
+    from app.modules.contacts.models import Contact
+
+    contacts = list((await db_session.execute(select(Contact))).scalars())
+    assert len(contacts) == 1
+    assert contacts[0].phone == "13800000000"
+    assert contacts[0].owner_user_id == demo.id
+
+
+async def test_approve_create_contact_blocked_by_duplicate(db_session, make_user):
+    """撞同名：不落库、result 记原因——确认执行不得绕过同名保护（D7）。"""
+    demo, _ = await make_user(username="demo")
+    await create_contact_for(demo, last_name="王", first_name="", nickname="王姨")
+
+    action = await pending_service.propose(
+        db_session, demo, "create_contact",
+        {"tier": "direct", "last_name": "王", "nickname": "王姨"},
+    )
+    approved = await pending_service.approve(db_session, demo, action.id)
+
+    assert approved.status == "executed"
+    assert approved.result["ok"] is False
+    assert "同名" in approved.result["error"]
+
+    from sqlalchemy import func, select
+
+    from app.modules.contacts.models import Contact
+
+    count = (await db_session.execute(select(func.count()).select_from(Contact))).scalar_one()
+    assert count == 1  # 只有预置那一条，提议没有落库

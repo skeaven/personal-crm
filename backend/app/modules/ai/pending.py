@@ -100,9 +100,30 @@ async def _exec_create_activity(db: AsyncSession, user: User, payload: dict) -> 
     return {"ok": True, "message": f"活动已记录（id={activity.id}）：{activity.title}"}
 
 
+async def _exec_create_contact(db: AsyncSession, user: User, payload: dict) -> dict:
+    """执行建联系人：走 contacts 正常创建（自带同名检测 D7）；被拦截就把提醒
+    写进 result——绝不用 confirm_duplicate=True 绕过，同名合并是人该做的决定。"""
+    from app.modules.contacts import service as contacts_service
+    from app.modules.contacts.schemas import ContactCreate
+
+    response = await contacts_service.create_contact(db, user, ContactCreate(**payload))
+    if not response.created:
+        names = "、".join(w.display_name for w in response.duplicate_warnings) or "同名联系人"
+        return {
+            "ok": False,
+            "error": f"同名提醒：{names} 已存在，未创建。可拒绝此提议，或去名册处理",
+        }
+    assert response.contact is not None
+    return {
+        "ok": True,
+        "message": f"联系人已创建（id={response.contact.id}）：{response.contact.display_name}",
+    }
+
+
 EXECUTORS = {
     "create_task": _exec_create_task,
     "create_activity": _exec_create_activity,
+    "create_contact": _exec_create_contact,
 }
 
 

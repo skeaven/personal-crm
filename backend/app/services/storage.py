@@ -24,7 +24,12 @@ THUMB_MAX_EDGE = 400
 TEMP_TTL_HOURS = 24
 
 # 扩展名 → MIME：随临时文件按原格式喂给视觉模型，与 ALLOWED_EXTENSIONS 白名单一致
-_IMAGE_MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+_IMAGE_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 def image_mime(extension: str) -> str:

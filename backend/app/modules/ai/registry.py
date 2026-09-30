@@ -339,9 +339,13 @@ ALL_TOOLS: list[AiTool] = [
         risk="write_queue",
         args_schema=CreateActivityArgs,
         run=_run_queue_create_activity,
-    ),    AiTool(
+    ),
+    AiTool(
         name="create_contact",
-        description="录入一个新联系人（口述或名片/截图识别均可，需用户确认后生效）；提议前先用 search_contacts 查同名",
+        description=(
+            "录入一个新联系人（口述或名片/截图识别均可，需用户确认后生效）；"
+            "提议前先用 search_contacts 查同名"
+        ),
         risk="write_queue",
         args_schema=CreateContactArgs,
         run=_run_queue_create_contact,
