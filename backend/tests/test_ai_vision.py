@@ -132,3 +132,39 @@ async def test_stream_agent_keeps_plain_text(db_session, make_user, monkeypatch)
         pass
 
     assert captured["messages"][0].content == "hi"
+
+
+class _FakeUpstreamError(Exception):
+    """模拟 openai 的状态错误：带 status_code 属性（400–499 即客户端错误）。"""
+
+    status_code = 400
+
+
+async def test_stream_agent_reports_vision_unsupported(db_session, make_user, monkeypatch):
+    """带图 + 上游 4xx → 专属 error 帧（code=vision_unsupported，文案含设置页引导）；
+    不带图的同款异常向上抛——由 api 层的通用兜底帧处理，不误伤。"""
+
+    class _RejectingAgent:
+        async def astream(self, *_args, **_kwargs):
+            raise _FakeUpstreamError("image input not supported by this model")
+            yield  # 不可达：仅为让函数成为 async generator（与真实 astream 同形）
+
+    monkeypatch.setattr("deepagents.create_deep_agent", lambda **_k: _RejectingAgent())
+    demo, _ = await make_user(username="demo")
+    from agent.runner import stream_agent
+
+    events = [
+        event
+        async for event in stream_agent(
+            db_session, demo, llm=object(), message="x", session_id="t1",
+            images=["data:image/png;base64,aGk="],
+        )
+    ]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["code"] == "vision_unsupported"
+    assert "不支持图片" in events[-1]["message"]
+    assert "image input not supported" in events[-1]["message"]  # 上游摘要便于甄别
+
+    with pytest.raises(_FakeUpstreamError):
+        async for _ in stream_agent(db_session, demo, llm=object(), message="x", session_id="t2"):
+            pass

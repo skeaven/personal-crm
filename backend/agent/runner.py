@@ -154,33 +154,46 @@ async def stream_agent(
 
     emitted_tools: set[str] = set()
     produced_text = False
-    async for chunk in agent.astream(
-        {"messages": [HumanMessage(content=content)]},
-        stream_mode=["messages"],
-        subgraphs=True,
-        config=config,
-    ):
-        if not isinstance(chunk, tuple) or len(chunk) < 2:
-            continue
-        namespace = chunk[0]
-        data = chunk[-1]
-        if namespace:  # 子代理输出不上屏
-            continue
+    try:
+        async for chunk in agent.astream(
+            {"messages": [HumanMessage(content=content)]},
+            stream_mode=["messages"],
+            subgraphs=True,
+            config=config,
+        ):
+            if not isinstance(chunk, tuple) or len(chunk) < 2:
+                continue
+            namespace = chunk[0]
+            data = chunk[-1]
+            if namespace:  # 子代理输出不上屏
+                continue
 
-        # messages 模式的 data 形态：langgraph 可能给 (chunk, metadata) 或裸 chunk
-        msg = data[0] if isinstance(data, tuple) and len(data) == 2 else data
-        text = _extract_text(getattr(msg, "content", None))
-        if text:
-            produced_text = True
-            yield {"type": "text", "delta": text}
+            # messages 模式的 data 形态：langgraph 可能给 (chunk, metadata) 或裸 chunk
+            msg = data[0] if isinstance(data, tuple) and len(data) == 2 else data
+            text = _extract_text(getattr(msg, "content", None))
+            if text:
+                produced_text = True
+                yield {"type": "text", "delta": text}
 
-        for call in getattr(msg, "tool_call_chunks", None) or []:
-            name = call.get("name")
-            if name and name not in emitted_tools:
-                emitted_tools.add(name)
-                yield {"type": "tool", "name": name}
-                # 给工具执行让出事件循环（langgraph 内部已 await，此处仅节奏缓冲）
-                await asyncio.sleep(0)
+            for call in getattr(msg, "tool_call_chunks", None) or []:
+                name = call.get("name")
+                if name and name not in emitted_tools:
+                    emitted_tools.add(name)
+                    yield {"type": "tool", "name": name}
+                    # 给工具执行让出事件循环（langgraph 内部已 await，此处仅节奏缓冲）
+                    await asyncio.sleep(0)
+    except Exception as exc:
+        # 带图 + 上游 4xx → 大概率模型不支持视觉。给可行动的文案而不是笼统的
+        # 「处理失败」；判据是请求特征（images 非空）而非错误文本匹配。
+        status = getattr(exc, "status_code", None)
+        if images and isinstance(status, int) and 400 <= status < 500:
+            yield {
+                "type": "error",
+                "code": "vision_unsupported",
+                "message": f"当前模型不支持图片输入，请在设置页换用支持视觉的模型（上游：{str(exc)[:200]}）",
+            }
+            return
+        raise  # 不带图（或其他异常）照旧抛给 api 层的通用兜底帧
 
     if not produced_text:
         # 常见于触发调用上限被优雅终止：给用户一句可理解的收尾
