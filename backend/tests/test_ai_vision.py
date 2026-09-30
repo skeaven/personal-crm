@@ -86,3 +86,49 @@ async def test_chat_rejects_two_images(client, make_user):
         headers=headers,
     )
     assert response.status_code == 422
+
+
+async def test_stream_agent_builds_multimodal_content(db_session, make_user, monkeypatch):
+    """带图对话：content 为 [文本段, 图片段]，data URI 原样透传给模型。"""
+    captured: dict = {}
+
+    class _FakeAgent:
+        async def astream(self, inputs, **_kwargs):
+            captured["messages"] = inputs["messages"]
+            chunk_msg = type("M", (), {"content": "ok", "tool_call_chunks": []})()
+            yield ((), (chunk_msg, {}))
+
+    monkeypatch.setattr("deepagents.create_deep_agent", lambda **_k: _FakeAgent())
+    demo, _ = await make_user(username="demo")
+    from agent.runner import stream_agent
+
+    uri = "data:image/png;base64,aGVsbG8="
+    events = []
+    async for event in stream_agent(
+        db_session, demo, llm=object(), message="存下名片", session_id="t1", images=[uri]
+    ):
+        events.append(event)
+
+    message = captured["messages"][0]
+    assert message.content[0] == {"type": "text", "text": "存下名片"}
+    assert message.content[1] == {"type": "image_url", "image_url": {"url": uri}}
+
+
+async def test_stream_agent_keeps_plain_text(db_session, make_user, monkeypatch):
+    """不带图的消息 content 仍是纯字符串（多模态改造不回归纯文本路径）。"""
+    captured: dict = {}
+
+    class _FakeAgent:
+        async def astream(self, inputs, **_kwargs):
+            captured["messages"] = inputs["messages"]
+            chunk_msg = type("M", (), {"content": "ok", "tool_call_chunks": []})()
+            yield ((), (chunk_msg, {}))
+
+    monkeypatch.setattr("deepagents.create_deep_agent", lambda **_k: _FakeAgent())
+    demo, _ = await make_user(username="demo")
+    from agent.runner import stream_agent
+
+    async for _ in stream_agent(db_session, demo, llm=object(), message="hi", session_id="t2"):
+        pass
+
+    assert captured["messages"][0].content == "hi"

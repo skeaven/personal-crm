@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
@@ -143,10 +144,18 @@ async def stream_agent(
     # thread_id 的拼装只发生在这里（业务侧只认 session_id）；带用户 id 避免跨用户串话
     config = {"configurable": {"thread_id": f"{user.id}:{session_id}"}}
 
+    # 图片作为消息内容段直通模型（OpenAI 多模态格式）；带图时整体换 HumanMessage
+    # 分段列表，纯文本维持字符串——对模型等价，但「带图」是视觉降级检测的明确信号。
+    content: Any = message
+    if images:
+        content = [{"type": "text", "text": message}] + [
+            {"type": "image_url", "image_url": {"url": uri}} for uri in images
+        ]
+
     emitted_tools: set[str] = set()
     produced_text = False
     async for chunk in agent.astream(
-        {"messages": [{"role": "user", "content": message}]},
+        {"messages": [HumanMessage(content=content)]},
         stream_mode=["messages"],
         subgraphs=True,
         config=config,
