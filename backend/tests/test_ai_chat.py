@@ -36,7 +36,7 @@ async def test_chat_streams_stub_events(client, make_user, login_headers, monkey
     demo, _ = await make_user(username="demo")
     headers = await login_headers("demo", "demo12345")
 
-    async def fake_stream(db, user, llm, message, session_id):
+    async def fake_stream(db, user, llm, message, session_id, images=None):
         yield {"type": "tool", "name": "get_upcoming_todos"}
         yield {"type": "text", "delta": "你有 "}
         yield {"type": "text", "delta": "3 件待办"}

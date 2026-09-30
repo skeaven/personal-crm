@@ -23,6 +23,15 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 THUMB_MAX_EDGE = 400
 TEMP_TTL_HOURS = 24
 
+# 扩展名 → MIME：随临时文件按原格式喂给视觉模型，与 ALLOWED_EXTENSIONS 白名单一致
+_IMAGE_MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+
+
+def image_mime(extension: str) -> str:
+    """按小写扩展名（含点）取 MIME；白名单外的兜底 jpeg——save_temp 已把过格式关。"""
+    return _IMAGE_MIME.get(extension.lower(), "image/jpeg")
+
+
 # 会话级"提交成功后待删文件"的登记键
 _PENDING_DELETE_KEY = "pending_file_deletes"
 

@@ -3,6 +3,7 @@
 chat 的聚合实现依赖 backend/agent/runner（deepagents 唯一封装点）。
 """
 
+import base64
 import json
 import uuid
 from datetime import datetime
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.core.errors import BusinessError
+from app.core.errors import BusinessError, NotFoundError
 from app.modules.ai import pending as pending_service
 from app.modules.ai import registry, semantic, sessions
 from app.modules.ai.llm import LLMNotConfiguredError, require_llm
@@ -24,10 +25,11 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 class ChatIn(BaseModel):
-    """对话请求：session_id 由前端生成（一个对话一个 id），缺失则服务端补一个。"""
+    """对话请求：session_id 由前端生成（一个对话一个 id）；images 为临时区图片路径，最多 1 张。"""
 
     message: str = Field(min_length=1)
     session_id: str | None = None
+    images: list[str] | None = Field(default=None, max_length=1)
 
 
 class PendingActionOut(BaseModel):
@@ -73,6 +75,28 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+def _load_image_data_uris(user: User, images: list[str] | None) -> list[str]:
+    """校验并读取请求附图，返回 data URI 列表（直接可喂给视觉模型）。
+
+    三道关：路径必须位于本人临时区（storage.is_own_temp_path）、经
+    resolve_within_root 解析（防 ../ 穿越）、文件必须存在；任一不过按 404/422
+    拒绝。校验发生在 SSE 响应开始之前——流一开始状态码就改不了了。
+    """
+    from app.services import storage
+
+    uris: list[str] = []
+    for temp_path in images or []:
+        normalized = temp_path.strip().lstrip("/")
+        if not storage.is_own_temp_path(normalized, user.id):
+            raise NotFoundError("图片不存在")
+        path = storage.resolve_within_root(normalized)
+        if not path.is_file():
+            raise NotFoundError("图片不存在或已过期，请重新上传")
+        encoded = base64.b64encode(path.read_bytes()).decode()
+        uris.append(f"data:{storage.image_mime(path.suffix)};base64,{encoded}")
+    return uris
+
+
 @router.get("/tools", response_model=list[ToolOut])
 async def list_tools(current_user: User = Depends(get_current_user)) -> list[ToolOut]:
     """工具清单（D11：内外共用同一份注册表）。"""
@@ -89,6 +113,9 @@ async def chat(
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """agent 对话（SSE 流）：文本增量 / 工具调用状态 / 写入提议 / 错误 / 结束帧。"""
+    # 图片校验必须在构造 StreamingResponse 之前：SSE 一旦开始，404 这类
+    # 状态码就发不出去了，只能以 JSON 错误响应提前拒绝。
+    image_uris = _load_image_data_uris(current_user, body.images)
 
     async def event_stream():
         session_id = body.session_id or str(uuid.uuid4())
@@ -100,7 +127,9 @@ async def chat(
             llm = await require_llm(db)
             from agent.runner import stream_agent
 
-            async for event in stream_agent(db, current_user, llm, body.message, session_id):
+            async for event in stream_agent(
+                db, current_user, llm, body.message, session_id, image_uris
+            ):
                 yield _sse(event)
         except LLMNotConfiguredError as exc:
             yield _sse({"type": "error", "code": "llm_not_configured", "message": exc.message})

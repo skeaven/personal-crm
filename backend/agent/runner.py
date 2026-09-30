@@ -128,7 +128,8 @@ def _make_langchain_tool(ai_tool, db: AsyncSession, user):
 
 
 async def stream_agent(
-    db: AsyncSession, user, llm, message: str, session_id: str
+    db: AsyncSession, user, llm, message: str, session_id: str,
+    images: list[str] | None = None,
 ) -> AsyncIterator[dict]:
     """运行 agent 并产出归一事件流。
 
