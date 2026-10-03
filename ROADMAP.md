@@ -39,7 +39,7 @@
 |---|---|---|
 | 工程地基 | 前后端脚手架、分层结构、契约产物（`src/api/types.ts`）、pytest/vitest、docker-compose 一体化部署 | ✅ |
 | 认证与家庭 | 用户+家庭组、JWT 登录、家庭内成员 | ✅ |
-| 联系人 | CRUD（direct/edge 双层）、中文姓名模型、展示名规则、同名创建提示（D7 细化） | ✅ |
+| 联系人 | CRUD（direct/edge 双层）、中文姓名单字段模型（D23）、展示名规则、同名创建提示（D7 细化） | ✅ |
 | 权限 | OwnershipMixin + permission.py 唯一判权点；私密/家庭可见隔离 | ✅ |
 | 设置骨架 | app_settings 表 + 设置服务（Level 4 配置页的前置） | ✅ |
 

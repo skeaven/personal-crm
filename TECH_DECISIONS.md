@@ -289,3 +289,14 @@
 - **直通 agent**：图片按 OpenAI 多模态格式并入消息（`POST /ai/chat` 的 `images` 字段，≤1 张 data URI），agent 自主选择工具；不建独立抽取管线——那会绕开工具注册表与 /mcp。
 - **确认走既有队列**：新工具 `create_contact`（write_queue）与 `create_task`/`create_activity` 同一红线，`EXECUTORS` 执行器走 `contacts_service.create_contact`，同名拦截不绕过。
 - 影响图片来源：`images` 指向本人临时区（`POST /uploads/temp`，D18），端点校验归属/穿越/存在性后转 data URI，临时文件由既有 TTL 清理回收。
+
+## D23 姓名模型合并为单字段（name）✅（2026-10-03）
+
+- **背景**：`contacts` 原为 `last_name` + `first_name` 双列（PROJECT_BACKGROUND R1「姓、名分离存储」）。用户决策：中文姓名本就是一个整体，拆分只带来录入时的边界猜测（视觉导入、对话建人尤其明显），合并后存储与检索都更简单。
+- **决策**：
+  1. **单字段存储**：两列合并为 `name VARCHAR(100)`（原 50+50 上界不缩水）；不再拆分，**放弃姓氏排序与按姓生成称呼**——当前代码无任何一处单独使用「姓」（`graph/kinship.py` 的称谓走角色路径），故当下零功能损失。
+  2. **一并删除 `display_name_override`**：前端从无填写入口的死字段，且与 `nickname` 职责重叠。姓名模型收敛为 `name` + `nickname`（外号/亲近称呼）。
+  3. **展示名规则**：`nickname > name > 「（未命名）」`；实现点不变，仍是 `contacts.models.Contact.display_name`。
+  4. **硬切不留兼容层**：单仓自托管、前端是唯一消费者；`/mcp` 的 `create_contact` 工具入参同步改为 `name`（工具 schema 由 `tools/list` 动态下发，无缓存问题）。
+- **迁移**：加 `name` → 回填 `trim(coalesce(last_name,'')) || trim(coalesce(first_name,''))` → 删三列。**降级不可逆**（整名无法可靠拆回姓/名），降级只还原列结构、整名存入 `last_name`（超 50 字符截断）。
+- **影响**：`ContactBase`/`Create`/`Update`/`Out` 三字段改 `name`；`GET /contacts/duplicate-check` 查询参数改 `name`；名册搜索由 4 条件降为 2；同名检测由「姓+名拼接全等」降为单列全等（顺带修掉「陈」+「建国」与「陈建」+「国」互相误判的老问题）。

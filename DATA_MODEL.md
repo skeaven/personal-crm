@@ -53,10 +53,8 @@
 | owner_user_id | BIGINT FK→users | 所有者，唯一可写（D7） |
 | family_id | BIGINT FK→families | 冗余家庭 ID，服务层保证与 owner 一致，用于家庭范围查询 |
 | tier | ENUM(direct, edge) | 直接联系人 / 边缘联系人（叶子）；升级 = 改 tier，数据无损 |
-| last_name | VARCHAR(50) | 姓（中文姓前名后为主路径；西名 family name 同位存储） |
-| first_name | VARCHAR(50) NOT NULL DEFAULT '' | 名；edge 联系人可只有姓或昵称 |
-| nickname | VARCHAR(100) NULL | 昵称/称呼（"老王""三婶"） |
-| display_name_override | VARCHAR(100) NULL | 手动指定展示名，优先级最高 |
+| name | VARCHAR(100) NOT NULL DEFAULT '' | 姓名（中文姓名整体存储，D23；不再拆分姓/名） |
+| nickname | VARCHAR(100) NULL | 昵称/称呼（外号、亲近称呼，如"老王""三婶"） |
 | gender | ENUM(male, female, other, unknown) | |
 | organization | VARCHAR(100) NULL | 公司/单位 |
 | phone | VARCHAR(30) NULL | 电话 |
@@ -77,9 +75,9 @@
 | status | ENUM(active, archived) | 归档代替删除，保护历史关系边 |
 | created_at / updated_at | TIMESTAMPTZ | |
 
-索引：`(family_id, status)`、`(owner_user_id)`；同名检测查 `(family_id, last_name, first_name)`，加 pg_trgm GIN 于生成列 `search_text`（Level 1 末尾加）。
+索引：`(family_id, status)`、`(owner_user_id)`；同名检测按姓名全等查询，当前数据量走上述索引即可，不单建。`search_text` 生成列 + pg_trgm GIN 曾列入 Level 1 计划但从未实现（名册搜索走 `name`/`nickname` 的 ILIKE），需要全文检索时再补。
 
-**展示名规则**（service 层统一实现，禁在前端重复实现）：`display_name_override > nickname > 姓+名 > 名`。
+**展示名规则**（model property 唯一实现，禁在前端重复实现）：`nickname > name > 「（未命名）」`。
 
 ## 3. 关系（图）
 
