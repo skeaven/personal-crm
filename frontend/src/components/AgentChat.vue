@@ -184,7 +184,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_contact: '建联系人',
 }
 const CONTACT_FIELD_LABELS: Record<string, string> = {
-  tier: '层级', last_name: '姓', first_name: '名', nickname: '昵称',
+  tier: '层级', name: '姓名', nickname: '昵称',
   organization: '单位', phone: '电话', qq: 'QQ', wechat: '微信',
   email: '邮箱', school_name: '院校', location: '所在地', bio: '备注',
 }

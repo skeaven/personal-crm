@@ -43,10 +43,8 @@ export interface DuplicateWarning {
 export interface ContactOut {
   id: number
   tier: 'direct' | 'edge'
-  last_name: string
-  first_name: string
+  name: string
   nickname: string | null
-  display_name_override: string | null
   display_name: string
   gender: 'male' | 'female' | 'other' | 'unknown'
   organization: string | null
@@ -66,10 +64,8 @@ export interface ContactOut {
 
 export interface ContactCreate {
   tier: 'direct' | 'edge'
-  last_name?: string
-  first_name?: string
+  name?: string
   nickname?: string | null
-  display_name_override?: string | null
   gender?: 'male' | 'female' | 'other' | 'unknown'
   organization?: string | null
   bio?: string | null
@@ -79,8 +75,7 @@ export interface ContactCreate {
 }
 
 export interface ContactUpdate {
-  last_name?: string
-  first_name?: string
+  name?: string
   nickname?: string | null
   gender?: 'male' | 'female' | 'other' | 'unknown'
   organization?: string | null

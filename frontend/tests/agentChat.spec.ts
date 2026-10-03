@@ -120,7 +120,7 @@ describe('AgentChat 确认面板', () => {
       {
         id: 1,
         tool_name: 'create_contact',
-        payload: { tier: 'direct', last_name: '王', nickname: '王姨', phone: '13800000000' },
+        payload: { tier: 'direct', name: '王', nickname: '王姨', phone: '13800000000' },
         status: 'pending',
         result: null,
         created_at: '2026-09-30T00:00:00Z',
@@ -133,6 +133,7 @@ describe('AgentChat 确认面板', () => {
     const text = wrapper.get('.pending-item').text()
     expect(text).toContain('建联系人')
     expect(text).toContain('层级: 直接')
+    expect(text).toContain('姓名: 王')
     expect(text).toContain('昵称: 王姨')
     expect(text).toContain('电话: 13800000000')
     expect(text).not.toContain('phone:')

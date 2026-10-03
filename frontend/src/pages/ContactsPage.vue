@@ -32,8 +32,7 @@ function clearActivityFilter(): void {
 /** 创建表单的响应式形状（字面量联合类型保证与契约一致） */
 interface CreateForm {
   tier: 'direct' | 'edge'
-  last_name: string
-  first_name: string
+  name: string
   nickname: string
   gender: NonNullable<ContactCreate['gender']>
   organization: string
@@ -75,8 +74,7 @@ const showCreate = ref(false)
 const creating = ref(false)
 const form = ref<CreateForm>({
   tier: 'direct',
-  last_name: '',
-  first_name: '',
+  name: '',
   nickname: '',
   gender: 'unknown',
   organization: '',
@@ -86,9 +84,9 @@ const form = ref<CreateForm>({
 })
 const duplicateWarnings = ref<DuplicateWarning[]>([])
 
-// 名册允许只填名不填姓，与原表单校验一致
+// 姓名必填一项才能提交（后端最小信息集更宽松：edge 联系人可只填昵称）
 const { capture, canSubmit } = useFormDirty(form, {
-  isSubmittable: (draft) => draft.last_name.trim().length > 0 || draft.first_name.trim().length > 0,
+  isSubmittable: (draft) => draft.name.trim().length > 0,
 })
 
 /** 打开创建弹窗：重置为空白表单，避免残留上次取消前的输入。 */
@@ -108,8 +106,7 @@ const genderOptions = [
 function resetForm(): void {
   form.value = {
     tier: 'direct',
-    last_name: '',
-    first_name: '',
+    name: '',
     nickname: '',
     gender: 'unknown',
     organization: '',
@@ -267,11 +264,8 @@ onMounted(loadContacts)
             <el-radio-button value="edge">边缘联系人</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="姓">
-          <el-input v-model="form.last_name" placeholder="如：陈" />
-        </el-form-item>
-        <el-form-item label="名">
-          <el-input v-model="form.first_name" placeholder="如：建国" />
+        <el-form-item label="姓名">
+          <el-input v-model="form.name" placeholder="如：陈建国" />
         </el-form-item>
         <el-form-item label="昵称 / 称呼">
           <el-input v-model="form.nickname" placeholder="如：老爸、三婶" />

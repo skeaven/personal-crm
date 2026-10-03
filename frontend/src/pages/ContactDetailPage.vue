@@ -57,8 +57,7 @@ const genderOptions: { label: string; value: 'male' | 'female' | 'other' | 'unkn
 const showEditDialog = ref(false)
 const editSaving = ref(false)
 interface EditDraft {
-  last_name: string
-  first_name: string
+  name: string
   nickname: string
   gender: 'male' | 'female' | 'other' | 'unknown'
   organization: string
@@ -66,8 +65,7 @@ interface EditDraft {
   bio: string
 }
 const editDraft = ref<EditDraft>({
-  last_name: '',
-  first_name: '',
+  name: '',
   nickname: '',
   gender: 'unknown',
   organization: '',
@@ -80,8 +78,7 @@ function openEdit(): void {
   const c = contact.value
   if (!c) return
   editDraft.value = {
-    last_name: c.last_name,
-    first_name: c.first_name,
+    name: c.name,
     nickname: c.nickname ?? '',
     gender: c.gender,
     organization: c.organization ?? '',
@@ -97,8 +94,7 @@ async function submitEdit(): Promise<void> {
   editSaving.value = true
   try {
     contact.value = await contactsApi.update(contact.value.id, {
-      last_name: editDraft.value.last_name,
-      first_name: editDraft.value.first_name,
+      name: editDraft.value.name,
       nickname: editDraft.value.nickname || null,
       gender: editDraft.value.gender,
       organization: editDraft.value.organization || null,
@@ -557,7 +553,7 @@ watch(contactId, () => {
         <section class="block">
           <h2 class="block-title">基本信息</h2>
           <el-descriptions :column="2" class="info-desc" label-class-name="info-label-cell">
-            <el-descriptions-item label="姓名">{{ contact.last_name }}{{ contact.first_name || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="姓名">{{ contact.name || '—' }}</el-descriptions-item>
             <el-descriptions-item label="性别">{{ genderLabel[contact.gender] ?? '未知' }}</el-descriptions-item>
             <el-descriptions-item label="单位">{{ contact.organization || '—' }}</el-descriptions-item>
             <el-descriptions-item label="所在地">
@@ -717,14 +713,9 @@ watch(contactId, () => {
       <!-- 编辑资料：官方 el-dialog + el-form（D16 组件化） -->
       <el-dialog v-model="showEditDialog" title="编辑资料" width="480px" destroy-on-close>
         <el-form label-position="top">
-          <div class="form-two-col">
-            <el-form-item label="姓">
-              <el-input v-model="editDraft.last_name" placeholder="姓" />
-            </el-form-item>
-            <el-form-item label="名">
-              <el-input v-model="editDraft.first_name" placeholder="名" />
-            </el-form-item>
-          </div>
+          <el-form-item label="姓名">
+            <el-input v-model="editDraft.name" placeholder="姓名" />
+          </el-form-item>
           <div class="form-two-col">
             <el-form-item label="昵称">
               <el-input v-model="editDraft.nickname" placeholder="怎么称呼（选填）" />

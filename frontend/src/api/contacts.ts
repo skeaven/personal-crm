@@ -28,10 +28,9 @@ export const contactsApi = {
   update: (id: number, data: ContactUpdate) => api.patch<ContactDetailOut>(`/contacts/${id}`, data),
   promote: (id: number) => api.post<ContactDetailOut>(`/contacts/${id}/promote`),
   archive: (id: number) => api.delete<void>(`/contacts/${id}`),
-  duplicateCheck: (params: { last_name?: string; first_name?: string; nickname?: string | null }) => {
+  duplicateCheck: (params: { name?: string; nickname?: string | null }) => {
     const query = new URLSearchParams()
-    if (params.last_name) query.set('last_name', params.last_name)
-    if (params.first_name) query.set('first_name', params.first_name)
+    if (params.name) query.set('name', params.name)
     if (params.nickname) query.set('nickname', params.nickname)
     const qs = query.toString()
     return api.get<DuplicateWarning[]>(`/contacts/duplicate-check${qs ? `?${qs}` : ''}`)
