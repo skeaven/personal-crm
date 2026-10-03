@@ -73,8 +73,7 @@ class CreateContactArgs(BaseModel):
     tier: Literal["direct", "edge"] = Field(
         default="direct", description="direct=直接联系人（默认）；信息量少给 edge"
     )
-    last_name: str = Field(default="", max_length=50)
-    first_name: str = Field(default="", max_length=50)
+    name: str = Field(default="", max_length=100)
     nickname: str | None = Field(default=None, max_length=100)
     organization: str | None = Field(default=None, max_length=100)
     phone: str | None = Field(default=None, max_length=30)
@@ -87,11 +86,9 @@ class CreateContactArgs(BaseModel):
 
     @model_validator(mode="after")
     def validate_name_presence(self) -> "CreateContactArgs":
-        """与 ContactCreate 同一最小信息集：姓、名、昵称至少一项，否则没法定位到人。"""
-        if not any(
-            [self.last_name.strip(), self.first_name.strip(), (self.nickname or "").strip()]
-        ):
-            raise ValueError("姓、名、昵称至少填写一项")
+        """与 ContactCreate 同一最小信息集：姓名、昵称至少一项，否则没法定位到人。"""
+        if not any([self.name.strip(), (self.nickname or "").strip()]):
+            raise ValueError("姓名、昵称至少填写一项")
         return self
 
 
@@ -195,8 +192,7 @@ async def _run_queue_create_contact(db: AsyncSession, user, args: CreateContactA
 
     payload: dict[str, Any] = {
         "tier": args.tier,
-        "last_name": args.last_name,
-        "first_name": args.first_name,
+        "name": args.name,
     }
     for key in (
         "nickname", "organization", "phone", "qq",
@@ -206,9 +202,9 @@ async def _run_queue_create_contact(db: AsyncSession, user, args: CreateContactA
         if value:
             payload[key] = value
     action = await pending_service.propose(db, user, "create_contact", payload)
+    suffix = f"（{args.nickname}）" if args.nickname else ""
     return (
-        f"已生成联系人提议（编号 {action.id}，待确认）："
-        f"{args.last_name}{args.first_name}{args.nickname or ''}。"
+        f"已生成联系人提议（编号 {action.id}，待确认）：{args.name}{suffix}。"
         f"需要用户在界面确认后才会真正创建。"
     )
 

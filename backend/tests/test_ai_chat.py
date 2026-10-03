@@ -104,7 +104,7 @@ async def test_pending_flow_http(client, make_user, login_headers):
 
     from tests.factories import create_contact_for
 
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
 
     from app.core.db import get_session_factory
     from app.modules.ai import pending as pending_service

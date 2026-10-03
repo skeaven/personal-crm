@@ -16,7 +16,7 @@ pytestmark = pytest.mark.asyncio
 async def test_approve_executes_create_task(db_session, make_user):
     """确认建待办提议：以提议人身份落库，联系人/日期正确解析，状态转 executed。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
 
     action = await pending_service.propose(
         db_session, demo, "create_task",
@@ -97,7 +97,7 @@ async def test_approve_executes_create_contact(db_session, make_user):
 
     action = await pending_service.propose(
         db_session, demo, "create_contact",
-        {"tier": "direct", "last_name": "王", "nickname": "王姨", "phone": "13800000000"},
+        {"tier": "direct", "name": "王", "nickname": "王姨", "phone": "13800000000"},
     )
     approved = await pending_service.approve(db_session, demo, action.id)
 
@@ -118,11 +118,11 @@ async def test_approve_executes_create_contact(db_session, make_user):
 async def test_approve_create_contact_blocked_by_duplicate(db_session, make_user):
     """撞同名：不落库、result 记原因——确认执行不得绕过同名保护（D7）。"""
     demo, _ = await make_user(username="demo")
-    await create_contact_for(demo, last_name="王", first_name="", nickname="王姨")
+    await create_contact_for(demo, name="王", nickname="王姨")
 
     action = await pending_service.propose(
         db_session, demo, "create_contact",
-        {"tier": "direct", "last_name": "王", "nickname": "王姨"},
+        {"tier": "direct", "name": "王", "nickname": "王姨"},
     )
     approved = await pending_service.approve(db_session, demo, action.id)
 
