@@ -28,10 +28,8 @@ class ContactBase(BaseModel):
     """联系人公共字段。"""
 
     tier: str = TIER_DIRECT
-    last_name: str = Field(default="", max_length=50)
-    first_name: str = Field(default="", max_length=50)
+    name: str = Field(default="", max_length=100)
     nickname: str | None = Field(default=None, max_length=100)
-    display_name_override: str | None = Field(default=None, max_length=100)
     gender: str = "unknown"
     organization: str | None = Field(default=None, max_length=100)
     phone: str | None = Field(default=None, max_length=30)
@@ -69,12 +67,9 @@ class ContactCreate(ContactBase):
 
     @model_validator(mode="after")
     def validate_name_presence(self) -> "ContactCreate":
-        """至少能定位到一个人：姓、名、昵称三者必有其一。"""
-        has_any_name = any(
-            [self.last_name.strip(), self.first_name.strip(), (self.nickname or "").strip()]
-        )
-        if not has_any_name:
-            raise ValueError("姓、名、昵称至少填写一项")
+        """至少能定位到一个人：姓名、昵称必有其一。"""
+        if not any([self.name.strip(), (self.nickname or "").strip()]):
+            raise ValueError("姓名、昵称至少填写一项")
         return self
 
 
@@ -82,10 +77,8 @@ class ContactUpdate(BaseModel):
     """更新联系人：全字段可选，仅提交的字段生效。"""
 
     tier: str | None = None
-    last_name: str | None = Field(default=None, max_length=50)
-    first_name: str | None = Field(default=None, max_length=50)
+    name: str | None = Field(default=None, max_length=100)
     nickname: str | None = Field(default=None, max_length=100)
-    display_name_override: str | None = Field(default=None, max_length=100)
     gender: str | None = None
     organization: str | None = Field(default=None, max_length=100)
     phone: str | None = Field(default=None, max_length=30)
@@ -108,10 +101,8 @@ class ContactOut(BaseModel):
 
     id: int
     tier: str
-    last_name: str
-    first_name: str
+    name: str
     nickname: str | None
-    display_name_override: str | None
     display_name: str
     gender: str
     organization: str | None

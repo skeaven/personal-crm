@@ -27,14 +27,13 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 @router.get("/duplicate-check", response_model=list[DuplicateWarning])
 async def check_duplicate(
-    last_name: str = "",
-    first_name: str = "",
+    name: str = "",
     nickname: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[DuplicateWarning]:
     """输入过程中的实时同名提示（表单失焦时调用）。"""
-    return await contact_service.check_duplicates(db, current_user, last_name, first_name, nickname)
+    return await contact_service.check_duplicates(db, current_user, name, nickname)
 
 
 @router.get("/schools", response_model=list[str])

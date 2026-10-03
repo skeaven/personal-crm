@@ -39,7 +39,7 @@ async def find_readable_contacts(
 ) -> list[_ContactRow]:
     """按读取范围查联系人列表，附带所有者展示名。
 
-    search 同时模糊匹配 姓/名/昵称/覆盖名；activity 按"最近联系"口径过滤
+    search 同时模糊匹配 姓名/昵称；activity 按"最近联系"口径过滤
     （recent_30d=近 30 天有活动；stale_180d=超过 180 天无活动或从未记录，仅 direct）。
     """
     stmt = (
@@ -54,10 +54,7 @@ async def find_readable_contacts(
     if search:
         pattern = f"%{search.strip()}%"
         stmt = stmt.where(
-            Contact.last_name.ilike(pattern)
-            | Contact.first_name.ilike(pattern)
-            | Contact.nickname.ilike(pattern)
-            | Contact.display_name_override.ilike(pattern)
+            Contact.name.ilike(pattern) | Contact.nickname.ilike(pattern)
         )
     if activity is not None:
         stmt = stmt.where(_activity_filter_condition(activity))
@@ -172,21 +169,21 @@ async def find_family_duplicates(
     db: AsyncSession,
     user,
     *,
-    last_name: str,
-    first_name: str,
+    name: str,
     nickname: str | None,
     exclude_contact_id: int | None = None,
 ) -> list[tuple[Contact, str]]:
-    """家庭范围内同名检测（D7 细化）：命中"姓+名"全等或昵称全等的在册联系人。
+    """家庭范围内同名检测（D7 细化）：命中姓名全等或昵称全等的在册联系人。
 
     返回 (联系人, 所有者展示名) 行，供 service 直接组装提醒。
+    姓名为空时跳过姓名条件——否则会命中所有姓名同样为空的 edge 联系人（只填了昵称的那些）。
     """
-    full_name = f"{last_name.strip()}{first_name.strip()}"
+    cleaned_name = name.strip()
     cleaned_nickname = (nickname or "").strip()
 
     match_conditions = []
-    if full_name:
-        match_conditions.append(Contact.last_name + Contact.first_name == full_name)
+    if cleaned_name:
+        match_conditions.append(Contact.name == cleaned_name)
     if cleaned_nickname:
         match_conditions.append(Contact.nickname == cleaned_nickname)
     if not match_conditions:

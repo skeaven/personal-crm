@@ -25,7 +25,7 @@ async def test_detail_includes_dates_block(client, family_users):
     from datetime import date
 
     owner, member = family_users
-    contact = await create_contact_for(owner, last_name="陈", first_name="建国", nickname="老爸")
+    contact = await create_contact_for(owner, name="陈建国", nickname="老爸")
     await create_date_for(
         owner,
         contact_id=contact.id,
@@ -57,13 +57,14 @@ async def test_create_direct_contact(client, family_users):
     headers = await login_as(client, "demo", "demo12345")
     response = await client.post(
         "/api/v1/contacts",
-        json={"tier": "direct", "last_name": "陈", "first_name": "建国", "nickname": "老爸"},
+        json={"tier": "direct", "name": "陈建国", "nickname": "老爸"},
         headers=headers,
     )
     assert response.status_code == 200
     body = response.json()
     assert body["created"] is True
     assert body["contact"]["display_name"] == "老爸"
+    assert body["contact"]["name"] == "陈建国"
 
 
 async def test_create_edge_contact_minimal_fields(client, family_users):
@@ -85,7 +86,7 @@ async def test_duplicate_warning_blocks_creation(client, family_users):
     """同名未确认时返回提醒且不落库；确认后可创建。"""
     owner, _ = family_users
     headers = await login_as(client, "demo", "demo12345")
-    payload = {"last_name": "张", "first_name": "伟", "nickname": None}
+    payload = {"name": "张伟", "nickname": None}
     first = await client.post("/api/v1/contacts", json=payload, headers=headers)
     assert first.json()["created"] is True
 
@@ -106,7 +107,7 @@ async def test_family_visibility_shared_readonly(client, family_users):
     """家庭可见联系人：另一成员可见但不可改；所有者可改。"""
     owner, member = family_users
     contact = await create_contact_for(
-        owner, last_name="张", first_name="伟", visibility="family"
+        owner, name="张伟", visibility="family"
     )
     member_headers = await login_as(client, "tong", "demo12345")
 
@@ -130,7 +131,7 @@ async def test_private_contact_hidden_from_family(client, family_users):
     """私密联系人对家庭其他成员完全不可见（404）。"""
     owner, member = family_users
     contact = await create_contact_for(
-        owner, last_name="周", first_name="明", visibility="private"
+        owner, name="周明", visibility="private"
     )
     member_headers = await login_as(client, "tong", "demo12345")
     response = await client.get(f"/api/v1/contacts/{contact.id}", headers=member_headers)
@@ -145,7 +146,7 @@ async def test_promote_edge_to_direct(client, family_users):
     """一键升级：tier 改为 direct，其余数据无损。"""
     owner, _ = family_users
     contact = await create_contact_for(
-        owner, tier="edge", nickname="张小宝", first_name="小宝"
+        owner, tier="edge", nickname="张小宝", name="小宝"
     )
     headers = await login_as(client, "demo", "demo12345")
     response = await client.post(f"/api/v1/contacts/{contact.id}/promote", headers=headers)
@@ -158,7 +159,7 @@ async def test_promote_edge_to_direct(client, family_users):
 async def test_archive_is_soft_delete(client, family_users):
     """归档后列表不可见，但详情仍可读（status=archived）。"""
     owner, _ = family_users
-    contact = await create_contact_for(owner, last_name="王", first_name="芳", tier="edge")
+    contact = await create_contact_for(owner, name="王芳", tier="edge")
     headers = await login_as(client, "demo", "demo12345")
 
     deleted = await client.delete(f"/api/v1/contacts/{contact.id}", headers=headers)
@@ -175,10 +176,97 @@ async def test_archive_is_soft_delete(client, family_users):
 async def test_search_matches_nickname(client, family_users):
     """搜索命中昵称（名册式搜索）。"""
     owner, _ = family_users
-    await create_contact_for(owner, last_name="陈", first_name="建国", nickname="老爸")
+    await create_contact_for(owner, name="陈建国", nickname="老爸")
     headers = await login_as(client, "demo", "demo12345")
     response = await client.get("/api/v1/contacts", params={"search": "老爸"}, headers=headers)
     assert response.status_code == 200
     results = response.json()
     assert len(results) == 1
     assert results[0]["display_name"] == "老爸"
+
+
+async def test_search_matches_name(client, family_users):
+    """搜索命中姓名（单字段模糊匹配，不再拆姓/名两个条件）。"""
+    owner, _ = family_users
+    await create_contact_for(owner, name="陈建国", nickname="老爸")
+    headers = await login_as(client, "demo", "demo12345")
+    response = await client.get("/api/v1/contacts", params={"search": "建国"}, headers=headers)
+    assert response.status_code == 200
+    results = response.json()
+    assert len(results) == 1
+    assert results[0]["name"] == "陈建国"
+
+
+async def test_duplicate_check_skips_blank_name(client, family_users):
+    """姓名留空（只填昵称的 edge 联系人）时同名检测必须跳过姓名条件。
+
+    否则 Contact.name == "" 会命中所有同样留空的 edge 联系人，第二个就建不出来。
+    """
+    owner, _ = family_users
+    await create_contact_for(owner, tier="edge", nickname="张小宝")
+    headers = await login_as(client, "demo", "demo12345")
+
+    created = await client.post(
+        "/api/v1/contacts", json={"tier": "edge", "nickname": "李二"}, headers=headers
+    )
+    assert created.json()["created"] is True
+    assert created.json()["duplicate_warnings"] == []
+
+    # 只带空姓名探查：库里有「张小宝」同样是空姓名，没有空值守卫就会命中它
+    probed = await client.get(
+        "/api/v1/contacts/duplicate-check",
+        params={"name": ""},
+        headers=headers,
+    )
+    assert probed.status_code == 200
+    assert probed.json() == []
+
+
+async def test_display_name_rule(client, family_users):
+    """展示名规则：昵称 > 姓名；姓名与昵称都空（含纯空白）则创建被拒 422。"""
+    owner, _ = family_users
+    headers = await login_as(client, "demo", "demo12345")
+
+    with_nickname = await client.post(
+        "/api/v1/contacts", json={"name": "陈建国", "nickname": "老爸"}, headers=headers
+    )
+    assert with_nickname.json()["contact"]["display_name"] == "老爸"
+
+    name_only = await client.post(
+        "/api/v1/contacts", json={"name": "陈秀兰"}, headers=headers
+    )
+    assert name_only.json()["contact"]["display_name"] == "陈秀兰"
+
+    blank = await client.post("/api/v1/contacts", json={"name": "   "}, headers=headers)
+    assert blank.status_code == 422
+
+
+async def test_name_length_boundary(client, family_users):
+    """姓名列上限 100（原 姓50+名50 的上界不缩水）：满 100 可存，101 被拒。"""
+    owner, _ = family_users
+    headers = await login_as(client, "demo", "demo12345")
+
+    full = "欧" * 100
+    ok = await client.post("/api/v1/contacts", json={"name": full}, headers=headers)
+    assert ok.status_code == 200
+    assert ok.json()["contact"]["name"] == full
+
+    too_long = await client.post("/api/v1/contacts", json={"name": "欧" * 101}, headers=headers)
+    assert too_long.status_code == 422
+
+
+async def test_update_name(client, family_users):
+    """改名走 PATCH：单字段更新后展示名与搜索结果同步。"""
+    owner, _ = family_users
+    contact = await create_contact_for(owner, name="陈建国")
+    headers = await login_as(client, "demo", "demo12345")
+
+    updated = await client.patch(
+        f"/api/v1/contacts/{contact.id}", json={"name": "陈建军"}, headers=headers
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "陈建军"
+    assert updated.json()["display_name"] == "陈建军"
+
+    found = await client.get("/api/v1/contacts", params={"search": "建军"}, headers=headers)
+    assert [r["id"] for r in found.json()] == [contact.id]

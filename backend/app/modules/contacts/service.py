@@ -87,12 +87,10 @@ def _build_warning(contact: Contact, owner_display_name: str) -> DuplicateWarnin
 
 
 async def check_duplicates(
-    db: AsyncSession, user: User, last_name: str, first_name: str, nickname: str | None
+    db: AsyncSession, user: User, name: str, nickname: str | None
 ) -> list[DuplicateWarning]:
     """同名检测（D7 细化）：家庭范围内命中即返回提醒列表。"""
-    hits = await contact_repo.find_family_duplicates(
-        db, user, last_name=last_name, first_name=first_name, nickname=nickname
-    )
+    hits = await contact_repo.find_family_duplicates(db, user, name=name, nickname=nickname)
     return [_build_warning(contact, owner_name) for contact, owner_name in hits]
 
 
@@ -100,9 +98,7 @@ async def create_contact(
     db: AsyncSession, user: User, data: ContactCreate
 ) -> ContactCreateResponse:
     """创建联系人：未确认前若命中同名则返回提醒，不落库（D7 细化决策）。"""
-    warnings = await check_duplicates(
-        db, user, data.last_name, data.first_name, data.nickname
-    )
+    warnings = await check_duplicates(db, user, data.name, data.nickname)
     if warnings and not data.confirm_duplicate:
         return ContactCreateResponse(created=False, duplicate_warnings=warnings)
 

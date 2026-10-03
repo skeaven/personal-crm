@@ -42,13 +42,14 @@ class Contact(Base, TimestampMixin, OwnershipMixin, ActivationMixin):
         server_default=TIER_DIRECT,
         comment="direct 直接联系人 / edge 边缘联系人",
     )
-    last_name: Mapped[str] = mapped_column(String(50), default="", server_default="", comment="姓")
-    first_name: Mapped[str] = mapped_column(
-        String(50), default="", server_default="", comment="名"
+    name: Mapped[str] = mapped_column(
+        String(100),
+        default="",
+        server_default="",
+        comment="姓名（中文姓名整体存储，D23）",
     )
-    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="昵称/称呼")
-    display_name_override: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="手动指定展示名，优先级最高"
+    nickname: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="昵称/称呼（外号、亲近称呼）"
     )
     gender: Mapped[str] = mapped_column(
         Enum(*GENDER_VALUES, name="gender_enum"),
@@ -97,13 +98,10 @@ class Contact(Base, TimestampMixin, OwnershipMixin, ActivationMixin):
 
     @property
     def display_name(self) -> str:
-        """展示名规则（唯一实现点，DATA_MODEL.md 第 2 节）：覆盖名 > 昵称 > 姓+名。"""
-        if self.display_name_override and self.display_name_override.strip():
-            return self.display_name_override.strip()
+        """展示名规则（唯一实现点，DATA_MODEL.md 第 2 节）：昵称 > 姓名 > 「（未命名）」。"""
         if self.nickname and self.nickname.strip():
             return self.nickname.strip()
-        full_name = f"{self.last_name}{self.first_name}".strip()
-        return full_name or self.first_name.strip() or "（未命名）"
+        return self.name.strip() or "（未命名）"
 
 
 class ImportantDate(Base, TimestampMixin, OwnershipMixin):
