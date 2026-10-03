@@ -32,9 +32,9 @@ async def test_stats_counts_by_activity_recency(client, make_user, login_headers
     """统计口径：总数含边缘；近期/久未只按 direct 联系人、以参与者表最近活动计。"""
     demo, _ = await make_user(username="demo")
     headers = await login_headers("demo", "demo12345")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰", nickname="老妈")
-    await create_contact_for(demo, last_name="张", first_name="伟")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
+    mother = await create_contact_for(demo, name="陈秀兰", nickname="老妈")
+    await create_contact_for(demo, name="张伟")
     await create_contact_for(demo, tier="edge", nickname="张小宝")
 
     # 老爸 3 天前参与活动（近期）；老妈 200 天前（半年未联系）；张伟从未记录（半年未联系）
@@ -58,8 +58,8 @@ async def test_stats_visibility_scope(client, make_user, login_headers):
     """统计范围随可读性：家人看不到私密联系人，也不计入各卡片。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
-    await create_contact_for(demo, last_name="周", first_name="明", visibility="private")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", visibility="family")
+    await create_contact_for(demo, name="周明", visibility="private")
+    father = await create_contact_for(demo, name="陈建国", visibility="family")
     await create_activity_for(
         demo, title="家宴", occurred_at=_days_ago(2), participant_contact_ids=[father.id]
     )
@@ -75,8 +75,8 @@ async def test_contacts_list_activity_filter(client, make_user, login_headers):
     """名册过滤 ?activity=recent_30d / stale_180d 与统计同口径（跳转联动）。"""
     demo, _ = await make_user(username="demo")
     headers = await login_headers("demo", "demo12345")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     await create_activity_for(
         demo, title="家宴", occurred_at=_days_ago(3), participant_contact_ids=[father.id]
     )

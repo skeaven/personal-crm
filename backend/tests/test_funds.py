@@ -14,7 +14,7 @@ pytestmark = pytest.mark.asyncio
 async def test_create_fund_loan_defaults(client, make_user, login_headers):
     """创建借款：带 due_at 自动置 pending；不带则 status 为空（不涉及结清）。"""
     demo, _ = await make_user(username="demo")
-    friend = await create_contact_for(demo, last_name="李", first_name="娜")
+    friend = await create_contact_for(demo, name="李娜")
     headers = await login_headers("demo", "demo12345")
 
     loan = await client.post(
@@ -53,7 +53,7 @@ async def test_create_fund_loan_defaults(client, make_user, login_headers):
 async def test_fund_list_filters_and_search(client, make_user, login_headers):
     """资金列表：direction/category/status 过滤 + 说明关键字搜索。"""
     demo, _ = await make_user(username="demo")
-    friend = await create_contact_for(demo, last_name="李", first_name="娜")
+    friend = await create_contact_for(demo, name="李娜")
     await create_fund_for(
         demo, contact_id=friend.id, direction="out", category="loan", amount=2000,
         occurred_at="2026-09-01", due_at="2026-10-01", status="pending", description="婚礼随礼备用",

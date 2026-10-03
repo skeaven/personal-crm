@@ -48,8 +48,8 @@ async def test_create_relationship_validations(client, make_user, login_headers)
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     other, _ = await make_user(username="other")
-    hidden = await create_contact_for(other, last_name="私", first_name="人", visibility="private")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    hidden = await create_contact_for(other, name="私人", visibility="private")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
     type_id = await _make_type(client, headers, "父亲", "子女")
 
@@ -78,8 +78,8 @@ async def test_create_relationship_validations(client, make_user, login_headers)
 async def test_relationship_reverse_direction_query(client, make_user, login_headers):
     """反向推导：A 是 B 的丈夫；从 B 视角查询应得到反向标签"妻子"。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰", nickname="老妈")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
+    mother = await create_contact_for(demo, name="陈秀兰", nickname="老妈")
     headers = await login_headers("demo", "demo12345")
     husband_type = await _make_type(client, headers, "丈夫", "妻子")
 
@@ -110,8 +110,8 @@ async def test_relationship_reverse_direction_query(client, make_user, login_hea
 async def test_relationship_duplicate_edge_rejected(client, make_user, login_headers):
     """同一对联系人 + 同一类型的边不可重复创建 → 409。"""
     demo, _ = await make_user(username="demo")
-    a = await create_contact_for(demo, last_name="张", first_name="伟")
-    b = await create_contact_for(demo, last_name="王", first_name="芳")
+    a = await create_contact_for(demo, name="张伟")
+    b = await create_contact_for(demo, name="王芳")
     headers = await login_headers("demo", "demo12345")
     type_id = await _make_type(client, headers, "同事", None, group="work")
 
@@ -126,9 +126,9 @@ async def test_relationship_visibility_intersection(client, make_user, login_hea
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     private_friend = await create_contact_for(
-        demo, last_name="周", first_name="明", visibility="private"
+        demo, name="周明", visibility="private"
     )
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", visibility="family")
+    father = await create_contact_for(demo, name="陈建国", visibility="family")
     headers = await login_headers("demo", "demo12345")
     type_id = await _make_type(client, headers, "朋友", "朋友", group="friend")
 
@@ -156,8 +156,8 @@ async def test_relationship_delete_permissions(client, make_user, login_headers)
     """删边仅所有者：家人 403，所有者 204；不可见的边对家人按 404。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
-    a = await create_contact_for(demo, last_name="张", first_name="伟")
-    b = await create_contact_for(demo, last_name="王", first_name="芳")
+    a = await create_contact_for(demo, name="张伟")
+    b = await create_contact_for(demo, name="王芳")
     headers = await login_headers("demo", "demo12345")
     type_id = await _make_type(client, headers, "同学", "同学", group="friend")
 
@@ -179,9 +179,9 @@ async def test_relationship_delete_permissions(client, make_user, login_headers)
 async def test_graph_data_center_expansion(client, make_user, login_headers):
     """N 度展开：以 A 为中心，depth=1 只有直接关系，depth=2 才到三度节点。"""
     demo, _ = await make_user(username="demo")
-    a = await create_contact_for(demo, last_name="陈", first_name="建国")
-    b = await create_contact_for(demo, last_name="陈", first_name="秀兰")
-    c = await create_contact_for(demo, last_name="王", first_name="芳")
+    a = await create_contact_for(demo, name="陈建国")
+    b = await create_contact_for(demo, name="陈秀兰")
+    c = await create_contact_for(demo, name="王芳")
     headers = await login_headers("demo", "demo12345")
     husband = await _make_type(client, headers, "丈夫", "妻子")
     wife_side = await _make_type(client, headers, "母亲", "子女")
@@ -217,9 +217,9 @@ async def test_graph_data_visibility_filtering(client, make_user, login_headers)
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     private_friend = await create_contact_for(
-        demo, last_name="周", first_name="明", visibility="private"
+        demo, name="周明", visibility="private"
     )
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", visibility="family")
+    father = await create_contact_for(demo, name="陈建国", visibility="family")
     headers = await login_headers("demo", "demo12345")
     type_id = await _make_type(client, headers, "朋友", "朋友", group="friend")
 

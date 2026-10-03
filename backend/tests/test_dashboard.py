@@ -81,7 +81,7 @@ async def test_task_without_due_stays_in_todo(client, make_user, login_headers):
 async def test_wish_target_date_and_given(client, make_user, login_headers):
     """愿望：定了送出日的 想送 项进入待办；已送出的进入已完成。"""
     demo, _ = await make_user(username="demo")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰", nickname="老妈")
+    mother = await create_contact_for(demo, name="陈秀兰", nickname="老妈")
     headers = await login_headers("demo", "demo12345")
     await create_wishlist_for(
         demo, contact_id=mother.id, title="血压仪", status="open",
@@ -103,7 +103,7 @@ async def test_wish_target_date_and_given(client, make_user, login_headers):
 async def test_repayment_pending_and_overdue(client, make_user, login_headers):
     """还款提醒：未结清借款按应还日分桶，含应还日与结清状态。"""
     demo, _ = await make_user(username="demo")
-    friend = await create_contact_for(demo, last_name="李", first_name="娜")
+    friend = await create_contact_for(demo, name="李娜")
     headers = await login_headers("demo", "demo12345")
     await create_fund_for(
         demo, contact_id=friend.id, direction="out", category="loan", amount=2000,
@@ -125,7 +125,7 @@ async def test_repayment_pending_and_overdue(client, make_user, login_headers):
 async def test_activity_future_only(client, make_user, login_headers):
     """活动：未来的进入待办；已发生的活动是历史，不进任何待办桶。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
     headers = await login_headers("demo", "demo12345")
     await create_activity_for(
         demo, title="周末家宴", occurred_at=_days_ahead_dt(4),
@@ -143,8 +143,8 @@ async def test_activity_future_only(client, make_user, login_headers):
 async def test_birthday_window_and_lead_days(client, make_user, login_headers):
     """生日：进入 提前量 窗口才出现；无提前量默认 7 天；过期自动滚明年不进过期桶。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰", nickname="老妈")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
+    mother = await create_contact_for(demo, name="陈秀兰", nickname="老妈")
     headers = await login_headers("demo", "demo12345")
 
     # 老爸：3 天后生日，提前 [7,1] → 出现，days_left=3
@@ -170,7 +170,7 @@ async def test_birthday_window_and_lead_days(client, make_user, login_headers):
 async def test_lunar_birthday_with_display_label(client, make_user, login_headers):
     """农历生日：下次发生日进窗口时出现，并带农历中文标签（如 农历三月初三）。"""
     demo, _ = await make_user(username="demo")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰", nickname="老妈")
+    mother = await create_contact_for(demo, name="陈秀兰", nickname="老妈")
     headers = await login_headers("demo", "demo12345")
 
     # today+3 对应的农历月日 → 下次发生恰为 today+3，稳定落在窗口内

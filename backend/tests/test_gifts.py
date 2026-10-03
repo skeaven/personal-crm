@@ -26,7 +26,7 @@ async def _demo_with_family():
 async def test_create_gift_with_all_fields(client, make_user, login_headers):
     """创建送出礼物：金额/场合/链接/说明全字段回显，币种默认 CNY。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
 
     resp = await client.post(
@@ -53,8 +53,8 @@ async def test_create_gift_with_all_fields(client, make_user, login_headers):
 async def test_gift_list_search_and_filters(client, make_user, login_headers):
     """礼物列表：关键字搜标题/场合；direction 与 contact_id 可组合过滤。"""
     demo = await _demo_with_family()
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     await create_gift_for(
         demo, contact_id=father.id, direction="given", title="龙井茶", occasion="生日"
     )
@@ -107,7 +107,7 @@ async def test_gift_visibility_isolation_and_permissions(client, make_user, logi
 async def test_wishlist_create_defaults_and_status_filter(client, make_user, login_headers):
     """愿望默认 open；status 过滤只命中对应状态。"""
     demo, _ = await make_user(username="demo")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    mother = await create_contact_for(demo, name="陈秀兰")
     headers = await login_headers("demo", "demo12345")
 
     created = await client.post(
@@ -142,7 +142,7 @@ async def test_wishlist_search(client, make_user, login_headers):
 async def test_wishlist_convert_to_gift(client, make_user, login_headers):
     """愿望送出转礼物：生成 given 礼物（given_at=今天），愿望置 given 并回链；不可重复转换。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     item = await create_wishlist_for(
         demo, contact_id=father.id, title="钓鱼竿", amount="1200.00", description="达瓦 fisheye"
     )

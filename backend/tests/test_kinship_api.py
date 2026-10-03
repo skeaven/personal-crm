@@ -39,8 +39,8 @@ async def _create_edge(client, headers, **payload) -> dict:
 async def test_system_edge_requires_valid_roles(client, make_user, login_headers):
     """系统类型建边：角色缺失/值域外 → 422；合法角色成功且返回称谓句式。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", gender="male")
-    son = await create_contact_for(demo, last_name="陈", first_name="小澄", gender="male")
+    father = await create_contact_for(demo, name="陈建国", gender="male")
+    son = await create_contact_for(demo, name="陈小澄", gender="male")
     headers = await login_headers("demo", "demo12345")
     types = await _make_system_types(client, headers)
 
@@ -78,8 +78,8 @@ async def test_system_edge_requires_valid_roles(client, make_user, login_headers
 async def test_relationship_list_uses_kinship_label(client, make_user, login_headers):
     """关系列表：从中心联系人视角输出称谓（爸爸/哥哥），role 空退回标签句式。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", gender="male")
-    me = await create_contact_for(demo, last_name="陈", first_name="小澄", gender="male")
+    father = await create_contact_for(demo, name="陈建国", gender="male")
+    me = await create_contact_for(demo, name="陈小澄", gender="male")
     headers = await login_headers("demo", "demo12345")
     types = await _make_system_types(client, headers)
 
@@ -89,7 +89,7 @@ async def test_relationship_list_uses_kinship_label(client, make_user, login_hea
     )
     # 旧式边（自定义类型，无角色）→ 兼容句式
     custom_type = await _make_type_plain(client, headers)
-    colleague = await create_contact_for(demo, last_name="王", first_name="同事")
+    colleague = await create_contact_for(demo, name="王同事")
     await _create_edge(
         client, headers, from_contact_id=me.id, to_contact_id=colleague.id,
         type_id=custom_type,
@@ -107,9 +107,9 @@ async def test_relationship_list_uses_kinship_label(client, make_user, login_hea
 async def test_kinship_path_two_hops(client, make_user, login_headers):
     """两跳推导：我→妈妈→(妈妈的哥哥)=舅舅；路径含角色序列与辈分差。"""
     demo, _ = await make_user(username="demo")
-    mother = await create_contact_for(demo, last_name="李", first_name="秀", gender="female")
-    uncle = await create_contact_for(demo, last_name="李", first_name="大勇", gender="male")
-    me = await create_contact_for(demo, last_name="陈", first_name="小澄", gender="male")
+    mother = await create_contact_for(demo, name="李秀", gender="female")
+    uncle = await create_contact_for(demo, name="李大勇", gender="male")
+    me = await create_contact_for(demo, name="陈小澄", gender="male")
     headers = await login_headers("demo", "demo12345")
     types = await _make_system_types(client, headers)
 
@@ -137,7 +137,7 @@ async def test_kinship_path_two_hops(client, make_user, login_headers):
 async def test_kinship_requires_binding(client, make_user, login_headers):
     """未绑定"我"：称谓查询返回 400 提示绑定。"""
     demo, _ = await make_user(username="demo")
-    other = await create_contact_for(demo, last_name="某", first_name="人")
+    other = await create_contact_for(demo, name="某人")
     headers = await login_headers("demo", "demo12345")
     resp = await client.get(f"/api/v1/graph/kinship?contact_id={other.id}", headers=headers)
     assert resp.status_code == 422

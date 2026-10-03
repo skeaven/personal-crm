@@ -110,29 +110,29 @@ async def _seed_demo_family(session, type_map: dict[tuple[str, str], int]) -> No
 
     # 直接联系人
     father = Contact(
-        owner_user_id=demo.id, family_id=family.id, last_name="陈", first_name="建国",
+        owner_user_id=demo.id, family_id=family.id, name="陈建国",
         nickname="老爸", gender="male", visibility="family",
     )
     mother = Contact(
-        owner_user_id=demo.id, family_id=family.id, last_name="陈", first_name="秀兰",
+        owner_user_id=demo.id, family_id=family.id, name="陈秀兰",
         nickname="老妈", gender="female", visibility="family",
     )
     colleague = Contact(
-        owner_user_id=demo.id, family_id=family.id, last_name="张", first_name="伟",
+        owner_user_id=demo.id, family_id=family.id, name="张伟",
         gender="male", organization="极星科技", visibility="family", bio="产品部同事，球友",
     )
     classmate = Contact(
-        owner_user_id=wife.id, family_id=family.id, last_name="李", first_name="娜",
+        owner_user_id=wife.id, family_id=family.id, name="李娜",
         gender="female", visibility="family", bio="大学室友",
     )
     private_friend = Contact(
-        owner_user_id=demo.id, family_id=family.id, last_name="周", first_name="明",
+        owner_user_id=demo.id, family_id=family.id, name="周明",
         gender="male", visibility="private", bio="仅自己可见的示例",
     )
     # 边缘联系人（叶子）：张伟的妻子与儿子
     colleague_wife = Contact(
-        owner_user_id=demo.id, family_id=family.id, tier="edge", last_name="王",
-        first_name="芳", gender="female", visibility="family",
+        owner_user_id=demo.id, family_id=family.id, tier="edge", name="王芳",
+        gender="female", visibility="family",
     )
     colleague_son = Contact(
         owner_user_id=demo.id, family_id=family.id, tier="edge", nickname="张小宝",
@@ -140,7 +140,7 @@ async def _seed_demo_family(session, type_map: dict[tuple[str, str], int]) -> No
     )
     # "我"：demo 账号绑定的联系人节点（D15 视角推导起点）
     me = Contact(
-        owner_user_id=demo.id, family_id=family.id, last_name="陈", first_name="澄",
+        owner_user_id=demo.id, family_id=family.id, name="陈澄",
         nickname="阿澄", gender="male", visibility="family",
     )
     session.add_all(

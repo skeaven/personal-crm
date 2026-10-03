@@ -39,7 +39,7 @@ async def _timeline(client, headers, contact_id: int):
 async def test_timeline_aggregates_three_sources(client, make_user, login_headers):
     """三源聚合：礼物、资金、活动（按参与者）都出现在同一个人的时间线上。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
     headers = await login_headers("demo", "demo12345")
 
     await create_gift_for(
@@ -62,7 +62,7 @@ async def test_timeline_aggregates_three_sources(client, make_user, login_header
 async def test_timeline_desc_order(client, make_user, login_headers):
     """时间倒序：最近发生在前。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
 
     await create_gift_for(
@@ -84,7 +84,7 @@ async def test_timeline_desc_order(client, make_user, login_headers):
 async def test_timeline_full_load_no_pagination(client, make_user, login_headers):
     """全量语义：5 条记录一次返回、倒序完整，不分页截断。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
 
     for offset, days in enumerate([9, 7, 5, 3, 1]):
@@ -101,8 +101,8 @@ async def test_timeline_full_load_no_pagination(client, make_user, login_headers
 async def test_timeline_excludes_other_contacts(client, make_user, login_headers):
     """别人的记录不串台：挂在其他联系人下的礼物不出现。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     headers = await login_headers("demo", "demo12345")
 
     await create_gift_for(
@@ -119,15 +119,15 @@ async def test_timeline_excludes_other_contacts(client, make_user, login_headers
 async def test_timeline_activity_by_participation(client, make_user, login_headers):
     """活动按参与者关联：参加者有此活动，未参加者没有。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     headers = await login_headers("demo", "demo12345")
 
     await create_activity_for(
         demo, title="只有爸妈的聚餐", occurred_at=_dt(2),
         participant_contact_ids=[father.id, mother.id],
     )
-    other = await create_contact_for(demo, last_name="张", first_name="伟")
+    other = await create_contact_for(demo, name="张伟")
     await create_activity_for(
         demo, title="球局", occurred_at=_dt(1), participant_contact_ids=[other.id],
     )
@@ -140,7 +140,7 @@ async def test_timeline_visibility_isolation(client, make_user, login_headers):
     """D7：私密的礼物流水对家庭成员不可见。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", visibility="family")
+    father = await create_contact_for(demo, name="陈建国", visibility="family")
     await create_gift_for(
         demo, contact_id=father.id, direction="given", title="私下的礼物",
         given_at=_d(1), visibility="private",
@@ -155,7 +155,7 @@ async def test_timeline_unreadable_contact_404(client, make_user, login_headers)
     """不可读联系人的时间线按 404 处理。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
-    private = await create_contact_for(demo, last_name="周", first_name="明", visibility="private")
+    private = await create_contact_for(demo, name="周明", visibility="private")
     tong_headers = await login_headers("tong", "demo12345")
 
     resp = await client.get(f"/api/v1/contacts/{private.id}/timeline", headers=tong_headers)

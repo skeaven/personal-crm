@@ -20,7 +20,7 @@ async def test_create_with_location_resolves_static(db_session, make_user):
     created = await contact_service.create_contact(
         db_session,
         demo,
-        ContactCreate(last_name="王", first_name="小明", location="浙江省杭州市"),
+        ContactCreate(name="王小明", location="浙江省杭州市"),
     )
     contact = created.contact
     assert contact is not None
@@ -35,7 +35,7 @@ async def test_create_without_location_keeps_null(db_session, make_user):
     """不带 location：缓存列全空（不误报"未解析"）。"""
     demo, _ = await make_user(username="demo")
     created = await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="李", first_name="四")
+        db_session, demo, ContactCreate(name="李四")
     )
     contact = created.contact
     assert contact.location is None
@@ -46,7 +46,7 @@ async def test_create_without_location_keeps_null(db_session, make_user):
 async def test_update_location_recomputes_and_clear(db_session, make_user):
     """更新 location：变更重算（换成区级）；清空时缓存列一并清空。"""
     demo, _ = await make_user(username="demo")
-    contact = await create_contact_for(demo, first_name="阿", last_name="芳")
+    contact = await create_contact_for(demo, name="芳阿")
 
     updated = await contact_service.update_contact(
         db_session,
@@ -70,7 +70,7 @@ async def test_update_same_location_skips_resolve(monkeypatch, db_session, make_
     """location 未变更：不触发解析（省外部调用配额）。"""
     demo, _ = await make_user(username="demo")
     created = await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="赵", first_name="敏", location="北京市")
+        db_session, demo, ContactCreate(name="赵敏", location="北京市")
     )
     contact_id = created.contact.id
 
@@ -91,7 +91,7 @@ async def test_unresolvable_location_marks_none(db_session, make_user):
     """解析未命中：source=none、坐标为空，location 文本保留。"""
     demo, _ = await make_user(username="demo")
     created = await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="钱", first_name="图", location="火星乌托邦")
+        db_session, demo, ContactCreate(name="钱图", location="火星乌托邦")
     )
     contact = created.contact
     assert contact.location == "火星乌托邦"
@@ -103,13 +103,13 @@ async def test_map_points_aggregates_province(db_session, make_user):
     """地图数据：仅含坐标点，省份计数倒序。"""
     demo, _ = await make_user(username="demo")
     await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="孙", first_name="一", location="杭州市")
+        db_session, demo, ContactCreate(name="孙一", location="杭州市")
     )
     await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="周", first_name="二", location="宁波市")
+        db_session, demo, ContactCreate(name="周二", location="宁波市")
     )
     await contact_service.create_contact(
-        db_session, demo, ContactCreate(last_name="吴", first_name="三", location="火星乌托邦")
+        db_session, demo, ContactCreate(name="吴三", location="火星乌托邦")
     )
     result = await contact_service.map_points(db_session, demo)
     assert len(result.points) == 2

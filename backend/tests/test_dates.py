@@ -14,8 +14,8 @@ pytestmark = pytest.mark.asyncio
 async def test_create_solar_and_lunar_dates(client, make_user, login_headers):
     """创建公历/农历日期均回显于详情契约；农历记录带中文标签字段供前端复用。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     headers = await login_headers("demo", "demo12345")
 
     solar = await client.post(
@@ -45,7 +45,7 @@ async def test_create_solar_and_lunar_dates(client, make_user, login_headers):
 async def test_create_date_field_validation(client, make_user, login_headers):
     """字段校验：solar 必须有 date_solar；lunar 必须有合法月日；混合/越界 → 422。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
 
     solar_missing = await client.post(
@@ -83,7 +83,7 @@ async def test_create_date_field_validation(client, make_user, login_headers):
 async def test_update_and_delete_date(client, make_user, login_headers):
     """更新与删除：改提前提醒量生效；删除后详情不再包含。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
+    father = await create_contact_for(demo, name="陈建国")
     headers = await login_headers("demo", "demo12345")
 
     created = await client.post(
@@ -117,7 +117,7 @@ async def test_date_write_permissions(client, make_user, login_headers):
     """写权限：家庭可见联系人的日期也只有创建者能改/删（D7 只读共享）。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", visibility="family")
+    father = await create_contact_for(demo, name="陈建国", visibility="family")
     existing = await create_date_for(
         demo, contact_id=father.id, type="birthday", calendar="solar",
         date_solar="1958-05-12", reminder_lead_days=[7],
@@ -149,7 +149,7 @@ async def test_date_visibility_follows_contact(client, make_user, login_headers)
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     private_friend = await create_contact_for(
-        demo, last_name="周", first_name="明", visibility="private"
+        demo, name="周明", visibility="private"
     )
     headers = await login_headers("demo", "demo12345")
 

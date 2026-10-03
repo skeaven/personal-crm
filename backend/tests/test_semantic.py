@@ -40,7 +40,7 @@ async def test_rebuild_creates_and_updates_and_cleans(db_session, make_user):
     demo, _ = await make_user(username="demo")
     embedder = _fake_embedder()
 
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
     summary = await semantic.rebuild_index(db_session, demo, embedder=embedder)
     assert summary["embedded"] == 1  # 联系人一条（无其他数据）
 
@@ -75,7 +75,7 @@ async def test_rebuild_creates_and_updates_and_cleans(db_session, make_user):
 async def test_rebuild_covers_five_sources(db_session, make_user):
     """五源装载：联系人/活动/礼物/资金都有向量（note 表随管线扩充）。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
 
     from datetime import datetime
 
@@ -96,7 +96,7 @@ async def test_semantic_search_visibility(db_session, make_user):
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     await create_contact_for(
-        demo, last_name="周", first_name="明", visibility="private", bio="仅自己可见"
+        demo, name="周明", visibility="private", bio="仅自己可见"
     )
     await semantic.rebuild_index(db_session, demo, embedder=_fake_embedder())
 
@@ -111,7 +111,7 @@ async def test_semantic_search_visibility(db_session, make_user):
 async def test_semantic_search_tool(db_session, make_user, monkeypatch):
     """语义搜索已注册为工具：经真实配置路径（stub build_embedder）输出结果。"""
     demo, _ = await make_user(username="demo")
-    await create_contact_for(demo, last_name="陈", first_name="建国", nickname="老爸", bio="爱钓鱼")
+    await create_contact_for(demo, name="陈建国", nickname="老爸", bio="爱钓鱼")
     await semantic.rebuild_index(db_session, demo, embedder=_fake_embedder())
 
     from app.core.db import get_session_factory

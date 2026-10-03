@@ -30,8 +30,8 @@ async def _two_users(client):
 async def test_create_activity_with_participants(client, make_user, login_headers):
     """创建活动带参与者：返回契约回显参与者，可再按标题搜出。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     headers = await login_headers("demo", "demo12345")
 
     resp = await client.post(
@@ -57,7 +57,7 @@ async def test_create_activity_validates_participants_readable(client, make_user
     """参与者必须对创建者可读：传入他人的私密联系人 → 422，活动不落库。"""
     demo, _ = await make_user(username="demo")
     other, _ = await make_user(username="other")
-    hidden = await create_contact_for(other, last_name="私", first_name="人", visibility="private")
+    hidden = await create_contact_for(other, name="私人", visibility="private")
     headers = await login_headers("demo", "demo12345")
 
     resp = await client.post(
@@ -92,10 +92,10 @@ async def test_activity_unreadable_participants_hidden(
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     private_friend = await create_contact_for(
-        demo, last_name="周", first_name="明", visibility="private"
+        demo, name="周明", visibility="private"
     )
     family_mate = await create_contact_for(
-        demo, last_name="陈", first_name="建国", visibility="family"
+        demo, name="陈建国", visibility="family"
     )
     await create_activity_for(
         demo, title="聚会", visibility="family",
@@ -114,8 +114,8 @@ async def test_activity_unreadable_participants_hidden(
 async def test_activity_update_participants_replaced(client, make_user, login_headers):
     """更新活动：participant_ids 提交即全量替换参与者名单。"""
     demo, _ = await make_user(username="demo")
-    father = await create_contact_for(demo, last_name="陈", first_name="建国")
-    mother = await create_contact_for(demo, last_name="陈", first_name="秀兰")
+    father = await create_contact_for(demo, name="陈建国")
+    mother = await create_contact_for(demo, name="陈秀兰")
     activity = await create_activity_for(
         demo, title="旧标题", participant_contact_ids=[father.id]
     )
@@ -217,8 +217,8 @@ async def test_list_activities_filters_by_contact(client, login_headers, make_us
 
     user, _ = await make_user(username="filter_user", password="pw12345678")
     headers = await login_headers("filter_user", "pw12345678")
-    dad = Contact(last_name="陈", first_name="爸", owner_user_id=user.id, family_id=user.family_id)
-    mom = Contact(last_name="李", first_name="妈", owner_user_id=user.id, family_id=user.family_id)
+    dad = Contact(name="陈爸", owner_user_id=user.id, family_id=user.family_id)
+    mom = Contact(name="李妈", owner_user_id=user.id, family_id=user.family_id)
     db_session.add_all([dad, mom])
     await db_session.flush()
     with_dad = Activity(title="陪爸钓鱼", owner_user_id=user.id, family_id=user.family_id)
