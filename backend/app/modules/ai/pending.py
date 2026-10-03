@@ -6,6 +6,7 @@
 
 from datetime import UTC, datetime
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -100,11 +101,29 @@ async def _exec_create_activity(db: AsyncSession, user: User, payload: dict) -> 
     return {"ok": True, "message": f"活动已记录（id={activity.id}）：{activity.title}"}
 
 
+# D23 之前的 create_contact payload 用姓/名两键；姓名已并为 name，旧键会被 pydantic
+# 静默忽略（extra 默认 ignore），放过去就会丢掉姓名建出一条无名联系人，故显式拦下。
+_STALE_CONTACT_KEYS = ("last_name", "first_name", "display_name_override")
+
+
 async def _exec_create_contact(db: AsyncSession, user: User, payload: dict) -> dict:
     """执行建联系人：走 contacts 正常创建（自带同名检测 D7）；被拦截就把提醒
-    写进 result——绝不用 confirm_duplicate=True 绕过，同名合并是人该做的决定。"""
+    写进 result——绝不用 confirm_duplicate=True 绕过，同名合并是人该做的决定。
+
+    payload 是持久化 JSON，可能来自更早的契约（D23 姓名合并前），先拦旧键。
+    """
     from app.modules.contacts import service as contacts_service
     from app.modules.contacts.schemas import ContactCreate
+
+    stale = [key for key in _STALE_CONTACT_KEYS if key in payload]
+    if stale:
+        return {
+            "ok": False,
+            "error": (
+                f"该提议生成于姓名合并之前，字段 {'/'.join(stale)} 已失效，"
+                "请拒绝后重新发起"
+            ),
+        }
 
     response = await contacts_service.create_contact(db, user, ContactCreate(**payload))
     if not response.created:
@@ -157,6 +176,15 @@ async def approve(db: AsyncSession, user: User, action_id: int) -> PendingAction
     except BusinessError as exc:
         action.status = "executed"
         action.result = {"ok": False, "error": exc.message}
+    except PydanticValidationError as exc:
+        # pydantic 的 ValidationError 不是 BusinessError（app.core.errors 那个才是），
+        # 不接住就会 500 且状态永远停在 pending——这条提议用户再也处理不掉。
+        first = exc.errors()[0] if exc.errors() else {}
+        action.status = "executed"
+        action.result = {
+            "ok": False,
+            "error": f"提议内容与当前契约不符：{first.get('msg', '校验失败')}",
+        }
     action.executed_at = datetime.now(UTC)
     await db.flush()
     return action

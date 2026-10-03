@@ -136,3 +136,54 @@ async def test_approve_create_contact_blocked_by_duplicate(db_session, make_user
 
     count = (await db_session.execute(select(func.count()).select_from(Contact))).scalar_one()
     assert count == 1  # 只有预置那一条，提议没有落库
+
+
+async def test_approve_legacy_payload_with_nickname_does_not_silently_drop_name(
+    db_session, make_user
+):
+    """D23 之前入队的旧 payload 带昵称时，确认不得静默建出「姓名为空」的联系人。
+
+    payload 是持久化 JSON：升级时可能躺着带 last_name/first_name 的旧行。
+    新契约忽略这两个键，若不拦截就会把「王」丢掉、只留昵称建一条联系人——
+    姓名静默丢失比报错更糟。
+    """
+    from sqlalchemy import select
+
+    from app.modules.contacts.models import Contact
+
+    demo, _ = await make_user(username="demo")
+    action = await pending_service.propose(
+        db_session, demo, "create_contact",
+        {"tier": "direct", "last_name": "王", "nickname": "王姨"},
+    )
+
+    approved = await pending_service.approve(db_session, demo, action.id)
+
+    assert approved.status == "executed"
+    assert approved.result["ok"] is False
+    contacts = list((await db_session.execute(select(Contact))).scalars())
+    assert contacts == [], "旧 payload 不得落库（否则姓名字段静默丢失）"
+
+
+async def test_approve_payload_failing_schema_records_failure_instead_of_raising(
+    db_session, make_user
+):
+    """payload 过不了当前 schema 时必须记失败，而不是把异常抛出去。
+
+    修复前抛的是 pydantic 的 ValidationError（不是 BusinessError，approve 接不住），
+    结果是 500 且状态永远停在 pending——这条提议用户再也处理不掉。
+    两种形状都要覆盖：无姓名的旧 payload（无昵称）与缺字段的新形状。
+    """
+    demo, _ = await make_user(username="demo")
+
+    for payload in (
+        {"tier": "direct", "last_name": "张", "first_name": "伟"},
+        {"tier": "direct"},
+    ):
+        action = await pending_service.propose(
+            db_session, demo, "create_contact", dict(payload)
+        )
+        approved = await pending_service.approve(db_session, demo, action.id)
+        assert approved.status == "executed", f"{payload} 未被执行"
+        assert approved.result["ok"] is False, f"{payload} 应记失败"
+        assert approved.result["error"], f"{payload} 应给出失败原因"
