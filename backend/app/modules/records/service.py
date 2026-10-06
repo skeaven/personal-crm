@@ -7,13 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError, ValidationError
 from app.modules.auth.models import User
 from app.modules.records import repository as records_repo
-from app.modules.records.models import Activity, ActivityImage, Task
+from app.modules.records.models import Activity, ActivityImage, Note, Task
 from app.modules.records.schemas import (
     ActivityCreate,
     ActivityImageOut,
     ActivityOut,
     ActivityUpdate,
     ImageRefIn,
+    NoteCreate,
+    NoteOut,
+    NoteUpdate,
     TaskCreate,
     TaskOut,
     TaskUpdate,
@@ -245,6 +248,72 @@ async def delete_activity(db: AsyncSession, user: User, activity_id: int) -> Non
         db, *[path for image in images for path in (image.path, image.thumb_path)]
     )
     await db.delete(activity)
+    await db.flush()
+
+
+async def create_note(db: AsyncSession, user: User, data: NoteCreate) -> NoteOut:
+    """创建备注；归属联系人必须对创建者可读，防止往不可见联系人上落数据。"""
+    readable_ids = await records_repo.filter_readable_contact_ids(
+        db, user, [data.contact_id]
+    )
+    if data.contact_id not in readable_ids:
+        raise ValidationError("关联的联系人不可见")
+    note = Note(
+        contact_id=data.contact_id,
+        content=data.content,
+        owner_user_id=user.id,
+        family_id=user.family_id,
+    )
+    db.add(note)
+    await db.flush()
+    note.owner_display_name = user.display_name
+    return NoteOut.model_validate(note)
+
+
+async def list_contact_notes(
+    db: AsyncSession, user: User, *, contact_id: int
+) -> list[NoteOut]:
+    """联系人备注列表（新→旧）；联系人不可读时自然为空，不单独报错。"""
+    rows = await records_repo.find_contact_notes(db, user, contact_id=contact_id)
+    outputs: list[NoteOut] = []
+    for note, owner_name in rows:
+        note.owner_display_name = owner_name
+        outputs.append(NoteOut.model_validate(note))
+    return outputs
+
+
+async def get_note(db: AsyncSession, user: User, note_id: int) -> NoteOut:
+    """读取备注详情；备注或其联系人不可读按 404 处理。"""
+    note = await records_repo.get_readable_note(db, user, note_id)
+    if note is None:
+        raise NotFoundError("备注不存在")
+    owner = await db.get(User, note.owner_user_id)
+    note.owner_display_name = owner.display_name if owner else "未知"
+    return NoteOut.model_validate(note)
+
+
+async def update_note(
+    db: AsyncSession, user: User, note_id: int, data: NoteUpdate
+) -> NoteOut:
+    """更新备注正文（仅所有者，家人只读）。"""
+    note = await records_repo.get_readable_note(db, user, note_id)
+    if note is None:
+        raise NotFoundError("备注不存在")
+    ensure_can_write(user, note)
+    note.content = data.content
+    await db.flush()
+    await db.refresh(note)
+    note.owner_display_name = user.display_name
+    return NoteOut.model_validate(note)
+
+
+async def delete_note(db: AsyncSession, user: User, note_id: int) -> None:
+    """删除备注（仅所有者）。"""
+    note = await records_repo.get_readable_note(db, user, note_id)
+    if note is None:
+        raise NotFoundError("备注不存在")
+    ensure_can_write(user, note)
+    await db.delete(note)
     await db.flush()
 
 

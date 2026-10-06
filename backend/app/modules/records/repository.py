@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
 from app.modules.contacts.models import Contact
-from app.modules.records.models import Activity, ActivityImage, ActivityParticipant, Task
+from app.modules.records.models import Activity, ActivityImage, ActivityParticipant, Note, Task
 from app.services.permission import readable_condition
 
 
@@ -103,6 +103,47 @@ async def replace_participants(
     for contact_id in contact_ids:
         db.add(ActivityParticipant(activity_id=activity_id, contact_id=contact_id))
     await db.flush()
+
+
+async def find_contact_notes(
+    db: AsyncSession, user, *, contact_id: int
+) -> list[tuple[Note, str]]:
+    """取联系人的全部备注（创建时间倒序，往来列表与时间线的备注数据源）。
+
+    备注可见性跟随联系人：除备注自身的可读条件外，还要求所属联系人可读——
+    联系人转私密后，其历史备注对家人一并隐藏。
+    """
+    stmt = (
+        select(Note, User.display_name.label("owner_display_name"))
+        .join(User, User.id == Note.owner_user_id)
+        .join(Contact, Contact.id == Note.contact_id)
+        .where(
+            Note.contact_id == contact_id,
+            Note.is_active.is_(True),
+            readable_condition(Note, user),
+            readable_condition(Contact, user),
+        )
+        .order_by(Note.created_at.desc(), Note.id.desc())
+    )
+    return list((await db.execute(stmt)).all())
+
+
+async def get_readable_note(db: AsyncSession, user, note_id: int) -> Note | None:
+    """按 id 取当前用户可读的备注；备注或所属联系人不可读一律 None（上层转 404）。
+
+    与列表同口径带联系人可读条件，保证单查不会绕过"私密联系人备注对家人隐藏"。
+    """
+    stmt = (
+        select(Note)
+        .join(Contact, Contact.id == Note.contact_id)
+        .where(
+            Note.id == note_id,
+            Note.is_active.is_(True),
+            readable_condition(Note, user),
+            readable_condition(Contact, user),
+        )
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 async def find_readable_tasks(

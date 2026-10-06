@@ -2,7 +2,7 @@
 
 衔接点设计（2026-09-21 用户定稿）：待办是全系统时间义务的统一视图，
 五来源 = 手工任务 / 心愿送出日 / 还款应还日 / 未来活动 / 重要日期（生日）。
-详情页时间线（2026-09-21）：三源（礼物/资金/活动）归并为倒序游标分页流。
+详情页时间线（2026-09-21，2026-09-30 扩备注）：四源（礼物/资金/活动/备注）归并为倒序游标分页流。
 各来源数据仍归各自模块管，这里只读聚合；权限随各模块可读查询天然生效。
 """
 
@@ -284,11 +284,13 @@ async def build_contact_timeline(
     gifts = await gifts_service.list_contact_gifts(db, user, contact_id=contact_id)
     funds = await funds_service.list_contact_fund_flows(db, user, contact_id=contact_id)
     activities = await records_service.list_contact_activities(db, user, contact_id=contact_id)
+    notes = await records_service.list_contact_notes(db, user, contact_id=contact_id)
 
     items = [
         *_gift_items(gifts),
         *_fund_items(funds),
         *_activity_items(activities),
+        *_note_items(notes),
     ]
     items.sort(key=lambda item: item.occurred_at, reverse=True)
     return TimelineOut(contact_id=contact_id, items=items)
@@ -355,3 +357,18 @@ def _activity_items(activities: list) -> list[TimelineItemOut]:
             )
         )
     return items
+
+
+def _note_items(notes: list) -> list[TimelineItemOut]:
+    """备注 → 时间线条目：以创建时刻为发生时刻，正文作摘要，记录人进 extra_label。"""
+    return [
+        TimelineItemOut(
+            source="note",
+            ref_id=note.id,
+            occurred_at=note.created_at,
+            title="备注",
+            summary=note.content,
+            extra_label=note.owner_display_name,
+        )
+        for note in notes
+    ]

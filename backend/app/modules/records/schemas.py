@@ -90,6 +90,34 @@ class ActivityOut(BaseModel):
     images: list[ActivityImageOut] = []
 
 
+class NoteCreate(BaseModel):
+    """创建备注：必须挂在可读联系人下（当前版本备注均归属联系人，自由笔记暂不开放）。"""
+
+    contact_id: int
+    content: str = Field(min_length=1)
+
+
+class NoteUpdate(BaseModel):
+    """更新备注：仅正文可改；归属联系人不可迁移，挪动归属应删了重记。"""
+
+    content: str = Field(min_length=1)
+
+
+class NoteOut(BaseModel):
+    """备注输出：owner_display_name 供家人场景显示"谁记的"。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contact_id: int | None
+    content: str
+    owner_user_id: int
+    owner_display_name: str
+    visibility: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class TaskCreate(BaseModel):
     """创建任务：标题必填，联系人/截止时间可选。"""
 

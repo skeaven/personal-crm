@@ -10,8 +10,8 @@ TODO_SOURCE_VALUES = ("task", "wish", "repayment", "activity", "birthday")
 # 待办分桶：todo 未过期 / overdue 已过期 / done 已完成 / all 并集
 TODO_BUCKET_VALUES = ("todo", "overdue", "done", "all")
 
-# 时间线来源（详情页竖向时间线；随模块迭代可继续扩充，如 notes/生日事件）
-TIMELINE_SOURCE_VALUES = ("gift", "fund", "activity")
+# 时间线来源（详情页竖向时间线；随模块迭代可继续扩充，如生日事件）
+TIMELINE_SOURCE_VALUES = ("gift", "fund", "activity", "note")
 
 
 class TodoItemOut(BaseModel):
@@ -33,7 +33,7 @@ class TodoItemOut(BaseModel):
 
 
 class TimelineItemOut(BaseModel):
-    """时间线条目：三源（礼物/资金/活动）归一形状，前端按 source 渲染图标与文案。
+    """时间线条目：四源（礼物/资金/活动/备注）归一形状，前端按 source 渲染图标与文案。
 
     amount 以字符串回显（NUMERIC 精度）；direction 保留原始方向（送出/流出），
     occurred_at 为归一化的排序时刻（日期源加日内偏移，保证跨源稳定）。

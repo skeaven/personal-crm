@@ -1,9 +1,12 @@
-/** records 模块 API 封装：活动（含参与者）与任务，对应 backend records/api.py */
+/** records 模块 API 封装：活动（含参与者）、任务与备注，对应 backend records/api.py */
 import { api } from './client'
 import type {
   ActivityCreate,
   ActivityOut,
   ActivityUpdate,
+  NoteCreate,
+  NoteOut,
+  NoteUpdate,
   TaskCreate,
   TaskOut,
   TaskStatus,
@@ -47,4 +50,13 @@ export const tasksApi = {
   create: (data: TaskCreate) => api.post<TaskOut>('/records/tasks', data),
   update: (id: number, data: TaskUpdate) => api.patch<TaskOut>(`/records/tasks/${id}`, data),
   remove: (id: number) => api.delete<void>(`/records/tasks/${id}`),
+}
+
+/** 备注接口：列表按联系人取全量（个人量级，无分页），写操作与任务同构。 */
+export const notesApi = {
+  list: (contactId: number) =>
+    api.get<NoteOut[]>(withQuery('/records/notes', { contact_id: contactId })),
+  create: (data: NoteCreate) => api.post<NoteOut>('/records/notes', data),
+  update: (id: number, data: NoteUpdate) => api.patch<NoteOut>(`/records/notes/${id}`, data),
+  remove: (id: number) => api.delete<void>(`/records/notes/${id}`),
 }

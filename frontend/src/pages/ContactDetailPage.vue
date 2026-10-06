@@ -19,6 +19,7 @@ import { tokens } from '@/design/tokens'
 import { toDateInput } from '@/utils/datetime'
 import ContactAvatar from '@/components/ContactAvatar.vue'
 import RecordTimeline from '@/components/RecordTimeline.vue'
+import NotesPanel from '@/components/NotesPanel.vue'
 import ActivityFormDialog from '@/components/ActivityFormDialog.vue'
 import GiftFormDialog from '@/components/GiftFormDialog.vue'
 import FundFormDialog from '@/components/FundFormDialog.vue'
@@ -257,7 +258,8 @@ async function removeDate(d: ImportantDateOut): Promise<void> {
 }
 
 // ---- 往来 Tabs：每类各自分页加载，不再依赖 dashboard 聚合接口 ----
-const activeTab = ref<TimelineSource>('activity')
+// note 不是 TimelineSource（它无分页与详情弹窗，由 NotesPanel 自包含处理），但 Tab 名共用此状态
+const activeTab = ref<TimelineSource | 'note'>('activity')
 const timelineRefs = ref<Record<string, { reload: () => Promise<void> } | null>>({})
 
 // 三源共用的表单弹窗（与列表页是同一个组件，行为一致）
@@ -643,7 +645,7 @@ watch(contactId, () => {
       <section class="block">
         <div class="block-head">
           <h2 class="block-title">往 来</h2>
-          <span class="block-hint">活动 · 资金 · 礼物，各按时间倒序</span>
+          <span class="block-hint">活动 · 资金 · 礼物 · 备注，各按时间倒序</span>
         </div>
         <el-tabs v-model="activeTab">
           <el-tab-pane name="activity">
@@ -687,6 +689,12 @@ watch(contactId, () => {
               :contact-id="contactId"
               @open-detail="openRecordDetail"
             />
+          </el-tab-pane>
+          <el-tab-pane name="note" lazy>
+            <template #label>
+              <span class="tab-label">备注</span>
+            </template>
+            <NotesPanel :contact-id="contactId" />
           </el-tab-pane>
         </el-tabs>
       </section>

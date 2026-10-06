@@ -13,6 +13,9 @@ from app.modules.records.schemas import (
     ActivityCreate,
     ActivityOut,
     ActivityUpdate,
+    NoteCreate,
+    NoteOut,
+    NoteUpdate,
     TaskCreate,
     TaskOut,
     TaskUpdate,
@@ -153,4 +156,58 @@ async def delete_task(
 ) -> Response:
     """删除任务（仅所有者）。"""
     await records_service.delete_task(db, current_user, task_id)
+    return Response(status_code=204)
+
+
+@router.get("/notes", response_model=list[NoteOut])
+async def list_notes(
+    contact_id: int = Query(description="按联系人过滤（当前备注必须归属联系人）"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[NoteOut]:
+    """联系人备注列表（新→旧）；联系人不可读时返回空列表。"""
+    return await records_service.list_contact_notes(
+        db, current_user, contact_id=contact_id
+    )
+
+
+@router.post("/notes", response_model=NoteOut)
+async def create_note(
+    body: NoteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NoteOut:
+    """创建备注（归属联系人须对创建者可读）。"""
+    return await records_service.create_note(db, current_user, body)
+
+
+@router.get("/notes/{note_id}", response_model=NoteOut)
+async def get_note(
+    note_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NoteOut:
+    """备注详情。"""
+    return await records_service.get_note(db, current_user, note_id)
+
+
+@router.patch("/notes/{note_id}", response_model=NoteOut)
+async def update_note(
+    note_id: int,
+    body: NoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NoteOut:
+    """更新备注正文（仅所有者）。"""
+    return await records_service.update_note(db, current_user, note_id, body)
+
+
+@router.delete("/notes/{note_id}", status_code=204)
+async def delete_note(
+    note_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """删除备注（仅所有者）。"""
+    await records_service.delete_note(db, current_user, note_id)
     return Response(status_code=204)
