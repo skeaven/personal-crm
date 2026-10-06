@@ -72,8 +72,9 @@
 静默取第一个（见 §1），是错误写入源。`participant_names` 因是多值，改为
 `participant_ids`。
 
-破坏性影响：外部 MCP 客户端的工具 schema 变化。工具 schema 由 `tools/list` 动态下发、
-无客户端缓存问题，客户端重连即拿到新形状（同 D23 对 `/mcp` 的处置）。
+**不留兼容层**（2026-10-06 用户确认）：不保留 `contact_name` 的旁路、不做名字→id 的
+静默回退、不设废弃期。破坏性影响限于外部 MCP 客户端的工具 schema——schema 由
+`tools/list` 动态下发、无客户端缓存问题，客户端重连即拿到新形状（同 D23 对 `/mcp` 的处置）。
 
 ### 2.4 设置类不开放
 
@@ -105,19 +106,36 @@ delete 存实体摘要），与 `payload` 分离——执行器无感，`payload
 
 ### 读（11 个，`risk="read"`，直执行）
 
-| 工具 | 入参要点 | 用途 |
+| 工具 | 过滤条件 | 用途 |
 |---|---|---|
 | `get_contact` | `contact_id` | 读单人**完整资料**（含重要日期列表）；改之前的回读入口 |
 | `list_contacts` | `tier?` `search?` `activity?` | 名册遍历（`search_contacts` 必须有关键词，覆盖不了"列出所有边缘联系人"） |
-| `list_tasks` | `status?` `contact_id?` | 待办列表 |
-| `list_activities` | `contact_id?` `limit?` | 活动列表 |
-| `list_notes` | `contact_id?` | 备注列表（含正文） |
-| `list_gifts` | `contact_id?` `direction?` | 礼物往来列表 |
-| `list_wishlist` | `status?` `contact_id?` | 心愿清单 |
-| `list_funds` | `contact_id?` `settled?` | 资金往来列表 |
+| `list_tasks` | `status?` `contact_id?` | 待办列表——`contact_id` 是本轮**新增的 service 参数**，见下 |
+| `list_activities` | `search?` `contact_id?` `limit?` | 活动列表 |
+| `list_notes` | `contact_id`（**必填**） | 备注列表（含正文）。备注按数据模型必须归属联系人，**没有"全部备注"** |
+| `list_gifts` | `search?` `direction?` `contact_id?` `limit?` | 礼物往来列表 |
+| `list_wishlist` | `search?` `status?` `contact_id?` | 心愿清单 |
+| `list_funds` | `search?` `direction?` `category?` `status?` `contact_id?` `limit?` | 资金往来（`status` 取 `pending/settled`，不是布尔） |
 | `list_relationships` | `contact_id?` | 关系边列表（建边前查重） |
 | `list_relationship_types` | — | 关系类型字典（建边需选类型） |
 | `list_reminders` | `unread_only?` | 提醒列表 |
+
+上表的过滤条件**以各模块 `service.py` 的真实签名为准**（工具调 service，不经 HTTP 层，
+两侧参数本就不等价），已逐个核对。核对发现一处真缺口：
+
+**`records.service.list_tasks` 目前只有 `status`**，没有 `contact_id`——"唐琴相关的待办"
+这类问题在工具层答不了，除非拉全量再自行过滤（那违反"口径唯一"，ARCHITECTURE 第 6 节）。
+本轮给 repository/service 的 `list_tasks` 新增可选 `contact_id` 参数（纯新增，
+不破坏既有调用方），REST 层同步暴露同名查询参数。
+
+### 3.1 多命中的处置（2026-10-06 用户要求）
+
+`list_*` / `search_contacts` 返回多于一条时，**agent 必须向用户复述候选并确认具体对象**，
+不许自行挑一个往下改。为让复述可用，读工具返回的每条必须带足以区分的字段
+（至少 `id` + 名称，联系人另带单位/记录人），不能只回一串 id。
+
+这条纪律落在两处：提示词（§4.5）+ 读工具的返回格式（每条一行、字段完整）。
+
 
 ### 写（27 个，`risk="write_queue"`，进确认队列）
 
@@ -177,7 +195,8 @@ class AiTool:
 `agent/runner.py::SYSTEM_PROMPT` 增加改/删工具的使用纪律：
 - 改之前先 `get_contact`（或对应 `list_*`）回读当前值，禁止凭空改写；
 - 找不到既有实体时**先报告并询问**，不得改用 create 绕过（唐琴事故的正解）；
-- 删除类操作要在回复里复述将被删除的对象。
+- 删除类操作要在回复里复述将被删除的对象；
+- **读到多条候选时必须把候选复述给用户确认**，禁止自行挑选一条就改（§3.1）。
 
 ## 5. 前端设计（AgentChat 确认面板）
 
@@ -187,6 +206,19 @@ class AiTool:
   - `delete_*` → 「将删除：<实体摘要>」；
   - `create_*` → 维持现状（payload 直读，`create_contact` 保留专用中文标签渲染）；
 - 样式只消费 `design/tokens.ts`（前端风格硬约束）。
+
+### 5.1 批量确认（2026-10-06 用户要求）
+
+确认面板支持**多选 + 批量确认/批量驳回**：每条提议仍是独立一行（「显示成多条」），
+用户勾选若干行后一次处理。
+
+实现走**前端循环调用既有的 `POST /ai/pending/{id}/approve|reject`**，不新增后端接口：
+每条提议本就是独立事务，独立执行、独立记 `result`。部分失败时逐条标出成功/失败，
+不做整体回滚——已成功的那条不该因为后面一条失败而被撤销。
+
+Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就发起 N 条提议，
+面板自然显示 N 行供多选。这比引入数组型批量工具简单得多，也保住了
+「一条提议 = 一次可独立拒绝的动作」这个确认语义。
 
 ## 6. 测试
 
@@ -213,7 +245,6 @@ class AiTool:
 - **`create_relationship_type`**（自定义关系类型）：属半配置数据，建错会污染字典，
   需要时在界面加；
 - **`scan_reminders`**：扫描是内部调度职责，agent 不需要触发；
-- **批量操作**：先不做批量改/删（确认面板的粒度是单条），需要时再议；
 - **语义索引自动重建**：沿用现状（设置页手动重建），新实体的索引对账沿用既有管线。
 
 ## 9. 风险与取舍
@@ -222,16 +253,16 @@ class AiTool:
 |---|---|
 | 47 个工具的 `tools/list` 变长，模型选择变难 | 描述即契约 + 命名纪律；每阶段落地后人工核验典型话术 |
 | `contact_name → contact_id` 破坏外部 MCP 客户端 | 已在 §2.3 显式声明；schema 动态下发，客户端重连即恢复 |
-| 确认队列的确认成本（多步任务要确认多次） | 接受。这是"不加档"决定的已知代价 |
+| 确认队列的确认成本（多步任务要确认多次） | 接受。这是"不加档"决定的已知代价；面板的多选批量确认（§5.1）缓解典型场景（如"把这 5 条过期待办标完成"） |
 | 写工具执行器从 3 增到 30 条，`pending.py` 会变长 | 按模块拆 `executors/` 子包（阶段 1 实施），保持单文件职责清晰 |
 
 ## 10. 分期（5 阶段，每阶段可独立验收）
 
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
-| **1. 基础设施** | `AiTool.label` + `/ai/tools` 下发 + 前端消费；`pending_actions.preview` 列与迁移；`AgentChat` 的 update/delete 渲染；契约测试；`pending.py` 拆 `executors/` | 现有 3 个写工具的确认面板仍正常；契约测试全绿；`EXECUTORS` 拆分后现有测试不变 |
+| **1. 基础设施** | `AiTool.label` + `/ai/tools` 下发 + 前端消费；`pending_actions.preview` 列与迁移；`AgentChat` 的 update/delete 渲染 + **多选批量确认/驳回**；契约测试；`pending.py` 拆 `executors/` | 现有 3 个写工具的确认面板仍正常；多选后能一次确认多条且逐条记结果；契约测试全绿；`EXECUTORS` 拆分后现有测试不变 |
 | **2. contacts** | `get_contact`、`list_contacts` + 6 个写工具；`contact_name → contact_id` 硬切；提示词改/删纪律 | 对话完成"改唐琴电话""给唐琴加农历生日""把某人升级为直接联系人"，面板显示 diff |
-| **3. records** | tasks/activities/notes 共 9 个工具 | "把这条待办标完成""改上周活动的参与者""删掉那条备注" |
+| **3. records** | `list_tasks` 的 service/repository 补 `contact_id` 过滤（含 REST 层暴露），tasks/activities/notes 共 9 个工具 | "把这条待办标完成""改上周活动的参与者""删掉那条备注" |
 | **4. gifts + funds** | gifts/wishlist/funds 的 3 个 `list_*` + 10 个写工具 | "记一笔随礼""把心愿标为已送出并转成礼物记录" |
 | **5. graph + reminders** | 3 个 `list_*`（关系边/关系类型/提醒）+ 关系增删 + 提醒已读 | "张三是我爸的弟弟，记下来""把提醒都标已读" |
 
