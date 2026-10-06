@@ -13,6 +13,8 @@ import type {
 } from './types'
 
 export const contactsApi = {
+  /** 毕业院校去重列表（校友查找/表单选择数据源）。 */
+  schools: () => api.get<string[]>('/contacts/schools'),
   /** 地图页数据：坐标撒点 + 省份计数聚合（choropleth）。 */
   mapPoints: () => api.get<MapPointsOut>('/contacts/map-points'),
   list: (params?: { tier?: string; search?: string; activity?: string }) => {

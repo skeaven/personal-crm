@@ -62,6 +62,14 @@ interface EditDraft {
   nickname: string
   gender: 'male' | 'female' | 'other' | 'unknown'
   organization: string
+  phone: string
+  qq: string
+  wechat: string
+  email: string
+  current_address: string
+  family_address: string
+  hobbies: string
+  school_name: string
   location: string
   bio: string
 }
@@ -70,6 +78,14 @@ const editDraft = ref<EditDraft>({
   nickname: '',
   gender: 'unknown',
   organization: '',
+  phone: '',
+  qq: '',
+  wechat: '',
+  email: '',
+  current_address: '',
+  family_address: '',
+  hobbies: '',
+  school_name: '',
   location: '',
   bio: '',
 })
@@ -83,10 +99,19 @@ function openEdit(): void {
     nickname: c.nickname ?? '',
     gender: c.gender,
     organization: c.organization ?? '',
+    phone: c.phone ?? '',
+    qq: c.qq ?? '',
+    wechat: c.wechat ?? '',
+    email: c.email ?? '',
+    current_address: c.current_address ?? '',
+    family_address: c.family_address ?? '',
+    hobbies: c.hobbies ?? '',
+    school_name: c.school_name ?? '',
     location: c.location ?? '',
     bio: c.bio ?? '',
   }
   showEditDialog.value = true
+  void ensureSchoolOptions()
 }
 
 /** 提交编辑：PATCH 全字段，成功后刷新详情（所在地坐标由服务端重算）。 */
@@ -99,6 +124,14 @@ async function submitEdit(): Promise<void> {
       nickname: editDraft.value.nickname || null,
       gender: editDraft.value.gender,
       organization: editDraft.value.organization || null,
+      phone: editDraft.value.phone || null,
+      qq: editDraft.value.qq || null,
+      wechat: editDraft.value.wechat || null,
+      email: editDraft.value.email || null,
+      current_address: editDraft.value.current_address || null,
+      family_address: editDraft.value.family_address || null,
+      hobbies: editDraft.value.hobbies || null,
+      school_name: editDraft.value.school_name || null,
       location: editDraft.value.location || null,
       bio: editDraft.value.bio || null,
     })
@@ -116,6 +149,19 @@ const genderLabel: Record<string, string> = { male: '男', female: '女', other:
 
 // ---- 重要日期编辑状态（仅所有者可见操作） ----
 const dateTableRef = ref()
+
+/** 毕业院校去重选项（校友查找数据源；编辑弹窗首次打开时加载）。 */
+const schoolOptions = ref<string[]>([])
+const schoolsLoaded = ref(false)
+async function ensureSchoolOptions(): Promise<void> {
+  if (schoolsLoaded.value) return
+  try {
+    schoolOptions.value = await contactsApi.schools()
+    schoolsLoaded.value = true
+  } catch {
+    schoolOptions.value = []
+  }
+}
 const relationTableRef = ref()
 const showDateForm = ref(false)
 const dateSaving = ref(false)
@@ -558,6 +604,14 @@ watch(contactId, () => {
             <el-descriptions-item label="姓名">{{ contact.name || '—' }}</el-descriptions-item>
             <el-descriptions-item label="性别">{{ genderLabel[contact.gender] ?? '未知' }}</el-descriptions-item>
             <el-descriptions-item label="单位">{{ contact.organization || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="毕业院校">{{ contact.school_name || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="电话">{{ contact.phone || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="微信">{{ contact.wechat || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="QQ">{{ contact.qq || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="邮箱">{{ contact.email || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="现居地">{{ contact.current_address || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="家庭地址">{{ contact.family_address || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="兴趣爱好">{{ contact.hobbies || '—' }}</el-descriptions-item>
             <el-descriptions-item label="所在地">
               {{ contact.location || '—' }}
               <!-- 坐标解析状态提示（D14）：none=已尝试未命中，其余展示来源 -->
@@ -579,36 +633,36 @@ watch(contactId, () => {
           </el-descriptions>
         </section>
 
-        <section class="block">
-          <div class="block-head">
-            <h2 class="block-title">重要日期</h2>
-            <el-button v-if="isOwned" text @click="openDateCreate">添加日期</el-button>
-          </div>
+      <section class="block">
+        <div class="block-head">
+        <h2 class="block-title">重要日期</h2>
+        <el-button v-if="isOwned" text @click="openDateCreate">添加日期</el-button>
+        </div>
 
-          <!-- 日期 / 提醒 / 操作 三列；操作列仅所有者渲染 -->
-          <el-table v-if="contact.dates.length" ref="dateTableRef" :data="contact.dates" row-key="id" class="date-table">
-            <el-table-column label="日期" min-width="240">
-              <template #default="{ row }">{{ dateLine(row) }}</template>
-            </el-table-column>
-            <el-table-column label="提醒" min-width="150">
-              <template #default="{ row }">
-                <span class="date-remind">提前 {{ row.reminder_lead_days.join('、') }} 天提醒</span>
-              </template>
-            </el-table-column>
-            <el-table-column v-if="isOwned" label="操作" width="130" align="right">
-              <template #default="{ row }">
-                <el-button text @click="openDateEdit(row)">编辑</el-button>
-                <!-- 问题文本须走 el-popconfirm 的 title 属性（默认插槽不会被渲染）；stop 防触发行级交互 -->
-                <el-popconfirm title="删除这条日期？" @confirm="removeDate(row)">
-                  <template #reference>
-                    <el-button text type="danger" @click.stop>删除</el-button>
-                  </template>
-                </el-popconfirm>
-              </template>
-            </el-table-column>
-          </el-table>
-          <p v-else class="block-empty">还没有记录重要日期</p>
-        </section>
+        <!-- 日期 / 提醒 / 操作 三列；操作列仅所有者渲染 -->
+        <el-table v-if="contact.dates.length" ref="dateTableRef" :data="contact.dates" row-key="id" class="date-table">
+          <el-table-column label="日期" min-width="240">
+            <template #default="{ row }">{{ dateLine(row) }}</template>
+          </el-table-column>
+          <el-table-column label="提醒" min-width="150">
+            <template #default="{ row }">
+              <span class="date-remind">提前 {{ row.reminder_lead_days.join('、') }} 天提醒</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="isOwned" label="操作" width="130" align="right">
+            <template #default="{ row }">
+              <el-button text @click="openDateEdit(row)">编辑</el-button>
+              <!-- 问题文本须走 el-popconfirm 的 title 属性（默认插槽不会被渲染）；stop 防触发行级交互 -->
+              <el-popconfirm title="删除这条日期？" @confirm="removeDate(row)">
+                <template #reference>
+                  <el-button text type="danger" @click.stop>删除</el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+        <p v-else class="block-empty">还没有记录重要日期</p>
+      </section>
 
       <section class="block">
         <div class="block-head">
@@ -719,7 +773,7 @@ watch(contactId, () => {
       />
 
       <!-- 编辑资料：官方 el-dialog + el-form（D16 组件化） -->
-      <el-dialog v-model="showEditDialog" title="编辑资料" width="480px" destroy-on-close>
+      <el-dialog v-model="showEditDialog" title="编辑资料" width="560px" destroy-on-close>
         <el-form label-position="top">
           <el-form-item label="姓名">
             <el-input v-model="editDraft.name" placeholder="姓名" />
@@ -737,8 +791,50 @@ watch(contactId, () => {
           <el-form-item label="单位">
             <el-input v-model="editDraft.organization" placeholder="选填" />
           </el-form-item>
+
+          <p class="form-group-title">联系方式</p>
+          <div class="form-two-col">
+            <el-form-item label="电话">
+              <el-input v-model="editDraft.phone" placeholder="选填" />
+            </el-form-item>
+            <el-form-item label="微信">
+              <el-input v-model="editDraft.wechat" placeholder="选填" />
+            </el-form-item>
+            <el-form-item label="QQ">
+              <el-input v-model="editDraft.qq" placeholder="选填" />
+            </el-form-item>
+            <el-form-item label="邮箱">
+              <el-input v-model="editDraft.email" placeholder="选填" />
+            </el-form-item>
+          </div>
+
+          <p class="form-group-title">地址与背景</p>
+          <div class="form-two-col">
+            <el-form-item label="现居地">
+              <el-input v-model="editDraft.current_address" placeholder="详细地址（选填）" />
+            </el-form-item>
+            <el-form-item label="家庭地址">
+              <el-input v-model="editDraft.family_address" placeholder="老家地址（选填）" />
+            </el-form-item>
+          </div>
+          <el-form-item label="毕业院校">
+            <el-select
+              v-model="editDraft.school_name"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="选择或直接输入新院校"
+            >
+              <el-option v-for="name in schoolOptions" :key="name" :label="name" :value="name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="兴趣爱好">
+            <el-input v-model="editDraft.hobbies" type="textarea" :rows="2" placeholder="钓鱼、骑行、古典乐…（选填）" />
+          </el-form-item>
+
           <el-form-item label="所在地">
-            <el-input v-model="editDraft.location" placeholder="如：上海市浦东新区（保存时自动解析坐标）" />
+            <el-input v-model="editDraft.location" placeholder="如：上海市浦东新区（保存时自动解析坐标，地图用）" />
           </el-form-item>
           <el-form-item label="备注">
             <el-input v-model="editDraft.bio" type="textarea" :rows="2" placeholder="一句话简介（选填）" />
@@ -860,6 +956,12 @@ watch(contactId, () => {
 </template>
 
 <style scoped>
+.form-group-title {
+  margin: 14px 0 0;
+  color: var(--crm-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
 .geo-miss {
   color: var(--crm-muted);
   font-size: 12px;

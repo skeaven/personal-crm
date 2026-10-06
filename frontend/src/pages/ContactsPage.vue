@@ -36,6 +36,9 @@ interface CreateForm {
   nickname: string
   gender: NonNullable<ContactCreate['gender']>
   organization: string
+  phone: string
+  wechat: string
+  school_name: string
   location: string
   bio: string
   visibility: 'private' | 'family'
@@ -78,6 +81,9 @@ const form = ref<CreateForm>({
   nickname: '',
   gender: 'unknown',
   organization: '',
+  phone: '',
+  wechat: '',
+  school_name: '',
   location: '',
   bio: '',
   visibility: 'family',
@@ -110,6 +116,9 @@ function resetForm(): void {
     nickname: '',
     gender: 'unknown',
     organization: '',
+    phone: '',
+    wechat: '',
+    school_name: '',
     location: '',
     bio: '',
     visibility: 'family',
@@ -125,6 +134,9 @@ async function submitCreate(confirmed = false): Promise<void> {
       ...form.value,
       nickname: form.value.nickname || null,
       organization: form.value.organization || null,
+      phone: form.value.phone || null,
+      wechat: form.value.wechat || null,
+      school_name: form.value.school_name || null,
       location: form.value.location || undefined,
       bio: form.value.bio || null,
       confirm_duplicate: confirmed,
@@ -278,6 +290,14 @@ onMounted(loadContacts)
         <el-form-item v-if="form.tier === 'direct'" label="单位">
           <el-input v-model="form.organization" placeholder="选填" />
         </el-form-item>
+        <div class="form-two-col">
+          <el-form-item label="电话">
+            <el-input v-model="form.phone" placeholder="选填" />
+          </el-form-item>
+          <el-form-item label="微信">
+            <el-input v-model="form.wechat" placeholder="选填" />
+          </el-form-item>
+        </div>
         <el-form-item label="所在地">
           <el-input v-model="form.location" placeholder="如：上海市浦东新区（保存时自动解析坐标上图）" />
         </el-form-item>
