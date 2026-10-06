@@ -37,7 +37,7 @@
 
 另有两个既存摩擦点，本轮一并处理：
 - 前端 `components/AgentChat.vue` 的 `TOOL_LABELS` 是**硬编码**的中文名映射
-  （且为 `create_contact` 写了专用渲染器）。工具面扩到 47 个后不可维护。
+  （且为 `create_contact` 写了专用渲染器）。工具面扩到 53 个后不可维护。
 - `registry.py::_resolve_contact_by_name` 在**多命中时静默取第一个**——同名/同音在中文
   人名里是常态，这是潜在的错误写入源。
 
@@ -45,7 +45,7 @@
 
 ### 2.1 工具组织：扁平 + 实体前缀（否决域聚合）
 
-47 个工具平铺，命名 `<动词>_<实体>`；动词表固定为
+53 个工具平铺，命名 `<动词>_<实体>`；动词表固定为
 `list / get / create / update / delete / promote / convert / mark`。
 
 否决「按实体域聚合」（`contact(action, ...)`）与「高频扁平 + 低频聚合」两种混合方案：
@@ -68,7 +68,8 @@
 （`create_task.contact_name` / `create_activity.participant_names` /
 `get_contact_timeline.contact_name`）**同步改为 id**，不留兼容层。
 
-理由：id 无歧义，且模型总能先经 `search_contacts` 拿到 id；按名字寻址在多命中时
+理由：id 无歧义，且模型总能先经读工具（`list_contacts`，合并前为 `search_contacts`，见 §3.5）
+拿到 id；按名字寻址在多命中时
 静默取第一个（见 §1），是错误写入源。`participant_names` 因是多值，改为
 `participant_ids`。
 
@@ -100,35 +101,79 @@ update/delete 必须显示现状与差异。
 delete 存实体摘要），与 `payload` 分离——执行器无感，`payload` 语义不变。
 备选（面板自己调 REST 读现状）被否：确认的那一刻读到的可能已不是提议时的状态。
 
-## 3. 补齐清单（38 个新工具，加现有 9 个 = 47）
+## 3. 补齐清单：REST 端点 → MCP 工具 1:1 映射（44 个新工具，加现有 9 个 = 53）
 
-命名即接口；每个写工具的 description 必须写明"需用户确认后生效"。
+**映射原则（2026-10-06 用户重申的设计约束）**：用户在项目之初就要求「界面操作与 agent
+看到的 MCP 工具尽量一致」。因此本清单**不是**按"agent 用不用得上"挑选出来的，
+而是**每个业务 REST 端点对应一个工具**；不映射的端点必须进 §3.1 的排除清单并给出理由，
+**不允许静默省略**。
 
-### 读（11 个，`risk="read"`，直执行）
+该原则与既有架构一致：HTTP 层与 MCP 工具都是薄薄一层盖在同一 `service.py` 上
+（已核：`list_contacts` / `list_gifts` / `list_fund_flows` / `list_tasks` 的 HTTP 函数体
+均为直转 service，参数同名，HTTP 只多做 `X-Total-Count` 头与 `Response` 对象）。
+D19 也曾专为 AI 工具保留 `service` 的 `limit=None`（不受 HTTP 的分页默认值约束）。
 
-| 工具 | 过滤条件 | 用途 |
+### 3.1 排除清单（每一条都需要理由）
+
+| 端点 | 排除理由 |
+|---|---|
+| `settings/*`（10 个） | **用户决定**：API key 经工具写入会明文落进 payload、确认面板与会话历史（§2.4） |
+| `auth/*`（6 个） | 身份与令牌管理，非业务动作；agent 以调用者身份运行，不需要"登录" |
+| `uploads/temp`、`uploads/tmp/{user_id}/{filename}` | 传输层。图片来源走 `/ai/chat` 的 `images` 字段（D21），不设工具 |
+| `ai/*`（10 个） | 助理自身的会话/提议/检索接口，工具化会形成自指 |
+| `records/activities/images/{id}` | 图片二进制读取，非业务动作；活动文本已在 `get_activity` |
+| `contacts/duplicate-check` | 同名检测是创建流程的内部步骤，`create_contact` 执行器已内置拦截 |
+| `contacts/map-points`、`graph/data` | 渲染用聚合数据（choropleth 计数、3D 图邻接表），非业务读 |
+| `contacts/schools` | 表单数据源；agent 经 `get_contact.school_name` 即可看到院校 |
+| `reminders/unread-count` | 派生值：`list_reminders(unread_only=True)` 的条数即它 |
+| `reminders/scan` | 内部调度职责（D22 的 asyncio 1h 扫描 + 启动即扫），agent 不需要触发 |
+| `dashboard/todos`、`dashboard/stats`、`dashboard/{id}/timeline` | **已有工具覆盖**：`get_upcoming_todos` / `get_stats` / `get_contact_timeline` |
+
+### 3.2 读工具（16 个新增，`risk="read"`，直执行）
+
+过滤条件**以各模块 `service.py` 的真实签名为准**（已逐个核对；工具调 service 不经
+HTTP 层，仅分页默认值不同：HTTP 默认 20/上限 200，service 的 `limit=None` 表示不分页）。
+
+| 工具 | 对应端点 | 过滤条件 | 备注 |
+|---|---|---|---|
+| `list_contacts` | `GET /contacts` | `tier?` `search?` `activity?` | 名册遍历 |
+| `get_contact` | `GET /contacts/{id}` | `contact_id` | 单人**完整资料**（含重要日期）；改之前的回读入口 |
+| `list_tasks` | `GET /records/tasks` | `status?` `contact_id?` | **`contact_id` 是本轮新增的 service 参数**，见下 |
+| `get_task` | `GET /records/tasks/{id}` | `task_id` | |
+| `list_activities` | `GET /records/activities` | `search?` `contact_id?` `limit?` | |
+| `get_activity` | `GET /records/activities/{id}` | `activity_id` | |
+| `list_notes` | `GET /records/notes` | `contact_id`（**必填**） | 备注按数据模型必须归属联系人，无"全部备注" |
+| `get_note` | `GET /records/notes/{id}` | `note_id` | |
+| `list_gifts` | `GET /gifts` | `search?` `direction?` `contact_id?` `limit?` | |
+| `get_gift` | `GET /gifts/{id}` | `gift_id` | |
+| `list_wishlist` | `GET /gifts/wishlist` | `search?` `status?` `contact_id?` | 端点无单条 GET，故不设 `get_wishlist_item` |
+| `list_funds` | `GET /funds` | `search?` `direction?` `category?` `status?` `contact_id?` `limit?` | `status` 取 `pending/settled`，不是布尔 |
+| `get_fund` | `GET /funds/{id}` | `fund_id` | |
+| `list_relationships` | `GET /graph/relationships` | `contact_id?` | 建边前查重 |
+| `list_relationship_types` | `GET /graph/relationship-types` | — | 建边需选类型 |
+| `list_reminders` | `GET /reminders` | `unread_only?` | |
+
+核对发现一处真缺口：**`records.service.list_tasks` 目前只有 `status`**，没有 `contact_id`
+——"某人相关的待办"在工具层答不了，除非拉全量自行过滤（违反"口径唯一"，ARCHITECTURE 第 6 节）。
+本轮给 repository/service 的 `list_tasks` 新增可选 `contact_id`（纯新增，不破坏既有调用方），
+REST 层同步暴露同名参数。
+
+### 3.3 写工具（28 个新增，`risk="write_queue"`，进确认队列）
+
+| 模块 | 工具 | 对应端点 |
 |---|---|---|
-| `get_contact` | `contact_id` | 读单人**完整资料**（含重要日期列表）；改之前的回读入口 |
-| `list_contacts` | `tier?` `search?` `activity?` | 名册遍历（`search_contacts` 必须有关键词，覆盖不了"列出所有边缘联系人"） |
-| `list_tasks` | `status?` `contact_id?` | 待办列表——`contact_id` 是本轮**新增的 service 参数**，见下 |
-| `list_activities` | `search?` `contact_id?` `limit?` | 活动列表 |
-| `list_notes` | `contact_id`（**必填**） | 备注列表（含正文）。备注按数据模型必须归属联系人，**没有"全部备注"** |
-| `list_gifts` | `search?` `direction?` `contact_id?` `limit?` | 礼物往来列表 |
-| `list_wishlist` | `search?` `status?` `contact_id?` | 心愿清单 |
-| `list_funds` | `search?` `direction?` `category?` `status?` `contact_id?` `limit?` | 资金往来（`status` 取 `pending/settled`，不是布尔） |
-| `list_relationships` | `contact_id?` | 关系边列表（建边前查重） |
-| `list_relationship_types` | — | 关系类型字典（建边需选类型） |
-| `list_reminders` | `unread_only?` | 提醒列表 |
+| contacts（6） | `update_contact` / `delete_contact` / `promote_contact` | `PATCH` / `DELETE /contacts/{id}`、`POST /contacts/{id}/promote` |
+| | `add_important_date` / `update_important_date` / `delete_important_date` | `POST` / `PATCH` / `DELETE /contacts/{id}/dates[/{date_id}]` |
+| tasks（2） | `update_task`（含 `status` 流转，"把这条待办标完成"）/ `delete_task` | `PATCH` / `DELETE /records/tasks/{id}` |
+| activities（2） | `update_activity` / `delete_activity` | `PATCH` / `DELETE /records/activities/{id}` |
+| notes（3） | `create_note` / `update_note` / `delete_note` | `POST` / `PATCH` / `DELETE /records/notes[/{id}]` |
+| gifts（3） | `create_gift` / `update_gift` / `delete_gift` | `POST` / `PATCH` / `DELETE /gifts[/{id}]` |
+| wishlist（4） | `create_wishlist_item` / `update_wishlist_item` / `delete_wishlist_item` / `convert_wishlist_item` | `POST` / `PATCH` / `DELETE /gifts/wishlist[/{id}]`、`POST .../convert` |
+| funds（3） | `create_fund` / `update_fund` / `delete_fund` | `POST` / `PATCH` / `DELETE /funds[/{id}]` |
+| graph（3） | `create_relationship_type` / `create_relationship` / `delete_relationship` | `POST /graph/relationship-types`、`POST` / `DELETE /graph/relationships[/{id}]` |
+| reminders（2） | `mark_reminder_read` / `mark_all_reminders_read` | `POST /reminders/{id}/read`、`POST /reminders/read-all` |
 
-上表的过滤条件**以各模块 `service.py` 的真实签名为准**（工具调 service，不经 HTTP 层，
-两侧参数本就不等价），已逐个核对。核对发现一处真缺口：
-
-**`records.service.list_tasks` 目前只有 `status`**，没有 `contact_id`——"唐琴相关的待办"
-这类问题在工具层答不了，除非拉全量再自行过滤（那违反"口径唯一"，ARCHITECTURE 第 6 节）。
-本轮给 repository/service 的 `list_tasks` 新增可选 `contact_id` 参数（纯新增，
-不破坏既有调用方），REST 层同步暴露同名查询参数。
-
-### 3.1 多命中的处置（2026-10-06 用户要求）
+### 3.4 多命中的处置（2026-10-06 用户要求）
 
 `list_*` / `search_contacts` 返回多于一条时，**agent 必须向用户复述候选并确认具体对象**，
 不许自行挑一个往下改。为让复述可用，读工具返回的每条必须带足以区分的字段
@@ -136,25 +181,12 @@ delete 存实体摘要），与 `payload` 分离——执行器无感，`payload
 
 这条纪律落在两处：提示词（§4.5）+ 读工具的返回格式（每条一行、字段完整）。
 
+### 3.5 待决：`search_contacts` 与 `list_contacts(search=)` 语义重叠
 
-### 写（27 个，`risk="write_queue"`，进确认队列）
-
-| 模块 | 工具 |
-|---|---|
-| contacts（6） | `update_contact`、`delete_contact`、`promote_contact`、`add_important_date`、`update_important_date`、`delete_important_date` |
-| tasks（2） | `update_task`（含 `status` 流转，"把这条待办标完成"）、`delete_task` |
-| activities（2） | `update_activity`、`delete_activity` |
-| notes（3） | `create_note`、`update_note`、`delete_note` |
-| gifts（3） | `create_gift`、`update_gift`、`delete_gift` |
-| wishlist（4） | `create_wishlist_item`、`update_wishlist_item`、`delete_wishlist_item`、`convert_wishlist_item`（愿望送出转礼物） |
-| funds（3） | `create_fund`、`update_fund`、`delete_fund` |
-| graph（2） | `create_relationship`、`delete_relationship` |
-| reminders（2） | `mark_reminder_read`、`mark_all_reminders_read` |
-
-**没有 `get_task` / `get_note` / `get_activity` / `get_gift` / `get_fund`**：
-这五类的 `list_*` 已返回完整行（含全部字段与 id），再给单条 get 是冗余工具，
-只会增加模型的选择负担（YAGNI）。`get_contact` 例外——`search_contacts` 刻意只回
-摘要（11 个联系人 × 20 字段全塞进上下文是浪费），需要单人的完整资料。
+按 1:1 原则，既有的 `search_contacts(query)` 与新增的 `list_contacts(search=query)`
+是同一个操作，两者并存违反"一个操作一个工具"。建议**合并**：删掉 `search_contacts`，
+提示词与描述把"找人"的入口统一到 `list_contacts`。此项待用户确认后执行
+（会改到既有工具名，属 §2.3 同类破坏性变更）。
 
 ## 4. 后端设计
 
@@ -235,15 +267,13 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
 ## 7. 文档登记
 
 - `TECH_DECISIONS.md` 新增 D24（本设计 §2 的六条决策）；
-- `ARCHITECTURE.md` 第 4 节 `/mcp` 一行更新为"47 工具、读写分离、写全进队列"；
+- `ARCHITECTURE.md` 第 4 节 `/mcp` 一行更新为"53 工具、读写分离、写全进队列"；
 - `DATA_MODEL.md` 补 `pending_actions.preview` 列；
 - `ROADMAP.md` 加一节"agent 能力对等"与分期。
 
 ## 8. 不做（本期明确排除）
 
 - **设置类写入**（§2.4）；
-- **`create_relationship_type`**（自定义关系类型）：属半配置数据，建错会污染字典，
-  需要时在界面加；
 - **`scan_reminders`**：扫描是内部调度职责，agent 不需要触发；
 - **语义索引自动重建**：沿用现状（设置页手动重建），新实体的索引对账沿用既有管线。
 
@@ -251,20 +281,20 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
 
 | 风险 | 处置 |
 |---|---|
-| 47 个工具的 `tools/list` 变长，模型选择变难 | 描述即契约 + 命名纪律；每阶段落地后人工核验典型话术 |
+| 53 个工具的 `tools/list` 变长，模型选择变难 | 描述即契约 + 命名纪律；每阶段落地后人工核验典型话术 |
 | `contact_name → contact_id` 破坏外部 MCP 客户端 | 已在 §2.3 显式声明；schema 动态下发，客户端重连即恢复 |
 | 确认队列的确认成本（多步任务要确认多次） | 接受。这是"不加档"决定的已知代价；面板的多选批量确认（§5.1）缓解典型场景（如"把这 5 条过期待办标完成"） |
-| 写工具执行器从 3 增到 30 条，`pending.py` 会变长 | 按模块拆 `executors/` 子包（阶段 1 实施），保持单文件职责清晰 |
+| 写工具执行器从 3 增到 31 条，`pending.py` 会变长 | 按模块拆 `executors/` 子包（阶段 1 实施），保持单文件职责清晰 |
 
 ## 10. 分期（5 阶段，每阶段可独立验收）
 
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
 | **1. 基础设施** | `AiTool.label` + `/ai/tools` 下发 + 前端消费；`pending_actions.preview` 列与迁移；`AgentChat` 的 update/delete 渲染 + **多选批量确认/驳回**；契约测试；`pending.py` 拆 `executors/` | 现有 3 个写工具的确认面板仍正常；多选后能一次确认多条且逐条记结果；契约测试全绿；`EXECUTORS` 拆分后现有测试不变 |
-| **2. contacts** | `get_contact`、`list_contacts` + 6 个写工具；`contact_name → contact_id` 硬切；提示词改/删纪律 | 对话完成"改唐琴电话""给唐琴加农历生日""把某人升级为直接联系人"，面板显示 diff |
-| **3. records** | `list_tasks` 的 service/repository 补 `contact_id` 过滤（含 REST 层暴露），tasks/activities/notes 共 9 个工具 | "把这条待办标完成""改上周活动的参与者""删掉那条备注" |
-| **4. gifts + funds** | gifts/wishlist/funds 的 3 个 `list_*` + 10 个写工具 | "记一笔随礼""把心愿标为已送出并转成礼物记录" |
-| **5. graph + reminders** | 3 个 `list_*`（关系边/关系类型/提醒）+ 关系增删 + 提醒已读 | "张三是我爸的弟弟，记下来""把提醒都标已读" |
+| **2. contacts** | `list_contacts`、`get_contact` + 6 个写工具（共 8）；`contact_name → contact_id` 硬切；提示词改/删纪律与多命中确认（§3.4） | 对话完成"改唐琴电话""给唐琴加农历生日""把某人升级为直接联系人"，面板显示 diff |
+| **3. records** | 6 个读 + 7 个写（共 13）；`list_tasks` 的 service/repository 补 `contact_id` 过滤（含 REST 层暴露） | "把这条待办标完成""改上周活动的参与者""删掉那条备注" |
+| **4. gifts + funds** | 5 个读（gifts/wishlist/funds）+ 10 个写（共 15） | "记一笔随礼""把心愿标为已送出并转成礼物记录" |
+| **5. graph + reminders** | 3 个读 + 5 个写（含 `create_relationship_type`，共 8） | "张三是我爸的弟弟，记下来""把提醒都标已读" |
 
 每阶段结束跑全量（后端 pytest + ruff、前端 vitest + build）并在开发环境浏览器核验；
 每阶段的工具选择质量由用户实际使用后反馈，不达标就调整 description 再进下一阶段。
