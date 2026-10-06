@@ -25,6 +25,7 @@
 | L3 礼物 | gifts | `app/modules/gifts/` | gifts, wishlist_items | 礼物往来（送出/收到）与愿望清单（未送出，open/purchased/given 状态机）两个状态域；独立管理页 + 搜索；愿望送出可转礼物记录（converted_gift_id 回链） | L3 |
 | L3 资金 | funds | `app/modules/funds/` | fund_flows | 资金往来与借贷记账（方向/类别/金额/应收还日/结清状态）；`due_at` 未结清 = 主页"还款提醒"待办源；独立管理页 + 搜索 | L3 |
 | L3 配置 | settings | `app/modules/settings/` | app_settings | 运行时配置读写（LLM/Embedding/高德 key，D6.2/D14） | 骨架 ✅ / 页面 L4 |
+| L3 提醒 | reminders | `app/modules/reminders/` | reminders | **主动提醒引擎（D22）**：三源扫描（重要日期/任务/还款，口径复用各源既有 service 函数）、幂等重建（UNIQUE(user,source,ref,due) 已读不复活、源头消失清理）、进程内 asyncio scheduler（1h）、应用内通知（邮件 provider 位预留）；供首页徽标与提醒页消费 | ✅ |
 | L4 聚合 | dashboard | `app/modules/dashboard/` | **无表，只读聚合** | 主页：待办分类聚合（日期提醒/待办任务/还款提醒=funds 到期，**分类可扩展**）、联系统计与后续人情统计增量（未结清借款、年度送礼支出…）、跳转过滤契约 | 当前 |
 | L4 智能 | ai | `app/modules/ai/` + `backend/agent/` | pending_actions, embeddings（pgvector 1024 维，元数据关联业务 id）, ai_sessions | DeepAgents 封装（agent/ 目录，隔离上游）、`/mcp` 端点、结构化抽取、写入确认队列、语义检索、会话索引与会话业务（modules/ai/sessions.py）；视觉导入（图片随对话进 agent，识别产物走写入确认队列，D21） | L4 |
 
@@ -37,7 +38,7 @@ L1  auth                                  （core）
       ↑
 L2  contacts   geo                        （contacts → auth, permission, geo；geo → core）
       ↑
-L3  graph   records   settings            （contacts, auth, permission）
+L3  graph   records   settings   reminders （contacts, auth, permission）
       ↑       ↑         ↑
 L4  dashboard      ai                     （contacts/graph/records/settings…）
 ```
@@ -86,11 +87,12 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | /api/v1/auth | auth | ✅ `POST /auth/login`、`GET|PUT /auth/me`（绑定"我是谁"）、个人令牌管理 `POST|GET /auth/tokens` + `DELETE /auth/tokens/{id}`（D11，明文仅签发时返回一次） |
 | /api/v1/contacts | contacts | 列表（tier/search/activity 过滤）、详情、创建、更新、升级、归档、同名检测、重要日期 CRUD（/{id}/dates）；计划：`GET /contacts/map-points`（地图页 choropleth+scatter 数据：坐标点 + 省份计数聚合） |
 | /api/v1/graph | graph | ✅ 关系类型字典（读+自定义新增）、关系边（建/删/视角化列表）、`GET /graph/data`（递归 CTE N 度展开，全图/中心模式） |
-| /api/v1/records | records | ✅ 活动（含参与者与**图片全量替换**，D18）/任务 CRUD；`GET /activities/images/{id}?size=thumb|full`（鉴权读图）；`/activities` 支持 `contact_id`/`limit`/`offset`；notes 端点随 L3 收尾 |
+| /api/v1/records | records | ✅ 活动（含参与者与**图片全量替换**，D18）/任务/备注 CRUD；`GET /activities/images/{id}?size=thumb|full`（鉴权读图）；`/activities` 支持 `contact_id`/`limit`/`offset`；备注可见性跟随联系人（私密联系人的备注对家人隐藏） |
 | /api/v1/gifts | gifts | ✅ 礼物往来 + 愿望清单（`/gifts/wishlist/*`），搜索/过滤/转礼物 |
 | /api/v1/funds | funds | ✅ 资金往来 CRUD + 结清状态机，多维过滤 |
-| /api/v1/dashboard | dashboard | ✅ `GET /dashboard/todos?bucket=`（待办四桶 × 五源聚合）；`GET /contacts/{id}/timeline`（联系人时间线三源全量倒序，路由挂 /contacts 前缀但实现在本聚合模块）；`GET /dashboard/stats`（主页统计卡：总数/近30天/半年未联系/待办数，口径与名册过滤联动） |
+| /api/v1/dashboard | dashboard | ✅ `GET /dashboard/todos?bucket=`（待办四桶 × 五源聚合）；`GET /contacts/{id}/timeline`（联系人时间线四源全量倒序，路由挂 /contacts 前缀但实现在本聚合模块）；`GET /dashboard/stats`（主页统计卡：总数/近30天/半年未联系/待办数，口径与名册过滤联动） |
 | /api/v1/settings | settings | 运行时配置读写（页面 L4） |
+| /api/v1/reminders | reminders | ✅ 列表（未读/全部）、未读数、逐条/全部已读、手动扫描（D22） |
 | /api/v1/ai、/mcp | ai | ✅ SSE 对话（POST /ai/chat，请求带 `session_id`、缺失则服务端补；`images` ≤1 张本人临时图，服务端转 data URI 以多模态消息直通 agent）、会话列表 `GET /ai/sessions`、删除 `DELETE /ai/sessions/{id}`、历史 `GET /ai/sessions/{id}/messages`、写入提议确认（/ai/pending/*，含 create_contact）、工具清单（/ai/tools）、`/mcp` Streamable HTTP（对外，JWT 或个人令牌门卫）；agent 封装在 backend/agent/（deepagents 唯一 import 点）；`POST /ai/embeddings/rebuild`、`GET /ai/search?q=`（语义检索） |
 
 ## 5. 前端映射与组件规范

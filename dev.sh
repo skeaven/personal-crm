@@ -26,7 +26,7 @@ fi
 # 后端：uvicorn 8100
 if ! lsof -ti :8100 >/dev/null 2>&1; then
   echo "[dev] 启动后端（8100）…"
-  (cd backend && nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8100 > /tmp/crm-backend.log 2>&1 &)
+  (cd backend && nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload > /tmp/crm-backend.log 2>&1 &)
   sleep 3
 fi
 curl -sf http://127.0.0.1:8100/api/v1/health >/dev/null && echo "[dev] 后端就绪（http://127.0.0.1:8100）" \

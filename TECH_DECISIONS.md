@@ -33,6 +33,7 @@
 | D19 | **联系人往来 Tabs 化**：三 Tab 各自分页，前端不再用聚合接口（保留给 AI 工具）；列表接口 limit 默认 20 | ✅ | 2026-09-25 |
 | D20 | **助理会话持久化**：session（业务）/ thread（LangGraph）分层命名；`ai_sessions` 索引表 + `AsyncPostgresSaver`；session_id 前端生成 | ✅ | 2026-09-27 |
 | D21 | **视觉导入**：与 agent 同一 LLM（被动检测视觉能力，不做模型名启发式）；图片作多模态消息直通 agent；落库一律经既有确认队列（不引入 interrupt） | ✅ | 2026-09-30 |
+| D22 | **提醒引擎**：三源幂等重建（UNIQUE user+source+ref+due，已读不复活、源头消失清理）+ asyncio 1h 进程内扫描 + 应用内通知（邮件 provider 位预留） | ✅ | 2026-09-23 |
 
 ---
 
@@ -289,6 +290,16 @@
 - **直通 agent**：图片按 OpenAI 多模态格式并入消息（`POST /ai/chat` 的 `images` 字段，≤1 张 data URI），agent 自主选择工具；不建独立抽取管线——那会绕开工具注册表与 /mcp。
 - **确认走既有队列**：新工具 `create_contact`（write_queue）与 `create_task`/`create_activity` 同一红线，`EXECUTORS` 执行器走 `contacts_service.create_contact`，同名拦截不绕过。
 - 影响图片来源：`images` 指向本人临时区（`POST /uploads/temp`，D18），端点校验归属/穿越/存在性后转 data URI，临时文件由既有 TTL 清理回收。
+
+## D22 提醒引擎：幂等重建 + 进程内调度 ✅（2026-09-23）
+
+- **需求**：系统从"被动查"升级为"主动提醒"（ROADMAP L3 收尾项）。
+- **决策**：
+  1. **新 reminders 聚合**（登记 ARCHITECTURE）：表写权独占；三源口径复用各模块既有 service 只读函数（重要日期=upcoming_date_reminders 含农历/滚动明年、任务=records 到期、还款=funds 未结清到期），不重复实现口径；
+  2. **幂等重建而非 append**：UNIQUE(user_id, source, ref_id, due_date)；已存在未读跳过、已读不复活、源头消失（完成/删除/结清）的未读清理——个人量级全量重建毫秒级，免状态机；
+  3. **进程内 asyncio scheduler**（NAS 友好，不引 celery/APScheduler）：lifespan 启动、1h 间隔、启动即扫；异常吞掉记日志不影响主服务；`POST /reminders/scan` 手动触发；
+  4. **通知渠道**：channel 列 + Notifier 协议，本期只落应用内（inapp）；**活动不进提醒**（临近活动主页已可见，避免噪音）。
+- **理由**：幂等重建的正确性不依赖状态记录，扫描器崩溃/漏跑都不会造成重复或丢失；进程内调度与一体化部署（D2）一致。
 
 ## D23 姓名模型合并为单字段（name）✅（2026-10-03）
 
