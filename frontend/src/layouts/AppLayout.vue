@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /** 应用主布局：侧边导航 + 内容区。助理为导航中的独立页面。 */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ChatbubbleEllipsesOutline,
   GitNetworkOutline,
   LocationOutline,
   MenuOutline,
+  NotificationsOutline,
   GiftOutline,
   HeartOutline,
   HomeOutline,
@@ -19,6 +20,7 @@ import {
 } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
 import { sealBrand } from '@/design/theme'
+import { useUnreadReminders } from '@/composables/useUnreadReminders'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -34,6 +36,7 @@ const navItems = [
   { key: 'map', label: '地图', icon: LocationOutline, to: '/map' },
   { key: 'activities', label: '活动', icon: ChatbubbleEllipsesOutline, to: '/activities' },
   { key: 'tasks', label: '待办', icon: TerminalOutline, to: '/tasks' },
+  { key: 'reminders', label: '提醒', icon: NotificationsOutline, to: '/reminders' },
   { key: 'gifts', label: '礼物', icon: GiftOutline, to: '/gifts' },
   { key: 'wishlist', label: '心愿', icon: HeartOutline, to: '/wishlist' },
   { key: 'funds', label: '资金', icon: SwapHorizontalOutline, to: '/funds' },
@@ -47,6 +50,17 @@ const activeMenu = computed(() => {
 
 /** 窄屏（<768px，iPad 宽度）抽屉式导航：侧栏隐藏，菜单按钮唤起覆盖层。 */
 const menuOpen = ref(false)
+
+/** 提醒未读数：登录后拉一次，每 60s 轮询兜底（提醒页改写后会主动同步）。 */
+const { unreadCount, refreshUnreadCount } = useUnreadReminders()
+let unreadTimer: number | undefined
+onMounted(() => {
+  void refreshUnreadCount()
+  unreadTimer = window.setInterval(refreshUnreadCount, 60_000)
+})
+onBeforeUnmount(() => {
+  if (unreadTimer) window.clearInterval(unreadTimer)
+})
 
 /** 退出登录并回到登录页。 */
 function handleLogout(): void {
@@ -65,7 +79,12 @@ function handleLogout(): void {
       <el-menu :default-active="activeMenu" class="side-menu" router>
         <el-menu-item v-for="item in navItems" :key="item.key" :index="item.to">
           <component :is="item.icon" class="nav-icon" />
-          <template #title>{{ item.label }}</template>
+          <template #title>
+            {{ item.label }}
+            <span v-if="item.key === 'reminders' && unreadCount > 0" class="nav-badge">
+              {{ unreadCount > 99 ? '99+' : unreadCount }}
+            </span>
+          </template>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
@@ -158,6 +177,18 @@ function handleLogout(): void {
 }
 .nav-label {
   white-space: nowrap;
+}
+.nav-badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--crm-seal);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
 }
 .sidebar-footer {
   margin-top: auto;

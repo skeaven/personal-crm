@@ -18,4 +18,5 @@ from app.modules.records.models import (  # noqa: F401
     Note,
     Task,
 )
+from app.modules.reminders.models import Reminder  # noqa: F401
 from app.modules.settings.models import AppSetting  # noqa: F401

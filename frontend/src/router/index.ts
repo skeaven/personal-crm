@@ -25,6 +25,7 @@ const router = createRouter({
         },
         { path: 'activities', name: 'activities', component: () => import('@/pages/ActivitiesPage.vue') },
         { path: 'tasks', name: 'tasks', component: () => import('@/pages/TasksPage.vue') },
+        { path: 'reminders', name: 'reminders', component: () => import('@/pages/RemindersPage.vue') },
         { path: 'gifts', name: 'gifts', component: () => import('@/pages/GiftsPage.vue') },
         { path: 'wishlist', name: 'wishlist', component: () => import('@/pages/WishlistPage.vue') },
         { path: 'funds', name: 'funds', component: () => import('@/pages/FundsPage.vue') },

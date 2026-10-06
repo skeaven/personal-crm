@@ -103,10 +103,16 @@ def create_app() -> FastAPI:
         if removed:
             logger.info("启动清理：删除 %d 个过期临时文件", removed)
 
-        async with _open_checkpointer() as checkpointer:
-            set_checkpointer(checkpointer)
-            async with mcp_lifespan():
-                yield
+        from app.modules.reminders import scheduler as reminder_scheduler
+
+        scanner_task = reminder_scheduler.start()
+        try:
+            async with _open_checkpointer() as checkpointer:
+                set_checkpointer(checkpointer)
+                async with mcp_lifespan():
+                    yield
+        finally:
+            await reminder_scheduler.stop(scanner_task)
 
     application = FastAPI(title=get_settings().app_name, lifespan=lifespan)
     application.include_router(api_v1_router, prefix="/api/v1")

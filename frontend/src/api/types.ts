@@ -48,6 +48,14 @@ export interface ContactOut {
   display_name: string
   gender: 'male' | 'female' | 'other' | 'unknown'
   organization: string | null
+  phone: string | null
+  qq: string | null
+  wechat: string | null
+  email: string | null
+  current_address: string | null
+  family_address: string | null
+  hobbies: string | null
+  school_name: string | null
   location: string | null
   location_lng: number | null
   location_lat: number | null
@@ -68,6 +76,14 @@ export interface ContactCreate {
   nickname?: string | null
   gender?: 'male' | 'female' | 'other' | 'unknown'
   organization?: string | null
+  phone?: string | null
+  qq?: string | null
+  wechat?: string | null
+  email?: string | null
+  current_address?: string | null
+  family_address?: string | null
+  hobbies?: string | null
+  school_name?: string | null
   bio?: string | null
   visibility?: 'private' | 'family'
   confirm_duplicate?: boolean
@@ -79,6 +95,14 @@ export interface ContactUpdate {
   nickname?: string | null
   gender?: 'male' | 'female' | 'other' | 'unknown'
   organization?: string | null
+  phone?: string | null
+  qq?: string | null
+  wechat?: string | null
+  email?: string | null
+  current_address?: string | null
+  family_address?: string | null
+  hobbies?: string | null
+  school_name?: string | null
   location?: string | null
   bio?: string | null
   visibility?: 'private' | 'family'
@@ -249,6 +273,27 @@ export interface KinshipOut {
   path: KinshipStepOut[]
 }
 
+// ---------- reminders 模块：主动提醒（D22） ----------
+
+export interface ReminderOut {
+  id: number
+  source: 'date' | 'task' | 'repayment'
+  ref_id: number
+  due_date: string
+  days_left: number
+  title: string
+  contact_id: number | null
+  read_at: string | null
+  created_at: string
+}
+
+export interface ReminderScanOut {
+  created: number
+  refreshed: number
+  removed: number
+  sources: Record<string, number>
+}
+
 // ---------- contacts 模块：地图数据（D14） ----------
 
 export interface MapPointOut {
@@ -279,7 +324,8 @@ export interface GraphDataOut {
 export type TimelineSource = 'gift' | 'fund' | 'activity'
 
 export interface TimelineItemOut {
-  source: TimelineSource
+  /** note 是 dashboard 聚合时间线新接入的来源，往来 Tab 的分页组件不消费它 */
+  source: TimelineSource | 'note'
   ref_id: number
   occurred_at: string
   title: string
@@ -470,6 +516,28 @@ export interface TaskUpdate {
   detail?: string | null
   due_at?: string | null
   status?: TaskStatus
+}
+
+// ---------- records 模块：备注 ----------
+
+export interface NoteOut {
+  id: number
+  contact_id: number | null
+  content: string
+  owner_user_id: number
+  owner_display_name: string
+  visibility: 'private' | 'family'
+  created_at: string
+  updated_at: string
+}
+
+export interface NoteCreate {
+  contact_id: number
+  content: string
+}
+
+export interface NoteUpdate {
+  content: string
 }
 
 // ---------- gifts 模块：礼物往来 / 愿望清单 ----------
