@@ -37,7 +37,7 @@
 
 另有两个既存摩擦点，本轮一并处理：
 - 前端 `components/AgentChat.vue` 的 `TOOL_LABELS` 是**硬编码**的中文名映射
-  （且为 `create_contact` 写了专用渲染器）。工具面扩到 53 个后不可维护。
+  （且为 `create_contact` 写了专用渲染器）。工具面扩到 52 个后不可维护。
 - `registry.py::_resolve_contact_by_name` 在**多命中时静默取第一个**——同名/同音在中文
   人名里是常态，这是潜在的错误写入源。
 
@@ -45,7 +45,7 @@
 
 ### 2.1 工具组织：扁平 + 实体前缀（否决域聚合）
 
-53 个工具平铺，命名 `<动词>_<实体>`；动词表固定为
+52 个工具平铺，命名 `<动词>_<实体>`；动词表固定为
 `list / get / create / update / delete / promote / convert / mark`。
 
 否决「按实体域聚合」（`contact(action, ...)`）与「高频扁平 + 低频聚合」两种混合方案：
@@ -101,7 +101,10 @@ update/delete 必须显示现状与差异。
 delete 存实体摘要），与 `payload` 分离——执行器无感，`payload` 语义不变。
 备选（面板自己调 REST 读现状）被否：确认的那一刻读到的可能已不是提议时的状态。
 
-## 3. 补齐清单：REST 端点 → MCP 工具 1:1 映射（44 个新工具，加现有 9 个 = 53）
+## 3. 补齐清单：REST 端点 → MCP 工具 1:1 映射（新增 44 个，删 1 个，合计 52）
+
+**总数口径**：既有 9 个工具 − 删除 `search_contacts`（§3.5）+ 新增 44 个 = **52 个**，
+其中读 21（新增 16 + 既有 5）、写 31（新增 28 + 既有 3）。
 
 **映射原则（2026-10-06 用户重申的设计约束）**：用户在项目之初就要求「界面操作与 agent
 看到的 MCP 工具尽量一致」。因此本清单**不是**按"agent 用不用得上"挑选出来的，
@@ -151,7 +154,7 @@ HTTP 层，仅分页默认值不同：HTTP 默认 20/上限 200，service 的 `l
 | `get_fund` | `GET /funds/{id}` | `fund_id` | |
 | `list_relationships` | `GET /graph/relationships` | `contact_id?` | 建边前查重 |
 | `list_relationship_types` | `GET /graph/relationship-types` | — | 建边需选类型 |
-| `list_reminders` | `GET /reminders` | `unread_only?` | |
+| `list_reminders` | `GET /reminders` | `unread_only?` `contact_id?` | `contact_id` 是本轮新增（§4.6） |
 
 核对发现一处真缺口：**`records.service.list_tasks` 目前只有 `status`**，没有 `contact_id`
 ——"某人相关的待办"在工具层答不了，除非拉全量自行过滤（违反"口径唯一"，ARCHITECTURE 第 6 节）。
@@ -181,12 +184,13 @@ REST 层同步暴露同名参数。
 
 这条纪律落在两处：提示词（§4.5）+ 读工具的返回格式（每条一行、字段完整）。
 
-### 3.5 待决：`search_contacts` 与 `list_contacts(search=)` 语义重叠
+### 3.5 已决：`search_contacts` 合并进 `list_contacts`（2026-10-06 用户确认）
 
-按 1:1 原则，既有的 `search_contacts(query)` 与新增的 `list_contacts(search=query)`
-是同一个操作，两者并存违反"一个操作一个工具"。建议**合并**：删掉 `search_contacts`，
-提示词与描述把"找人"的入口统一到 `list_contacts`。此项待用户确认后执行
-（会改到既有工具名，属 §2.3 同类破坏性变更）。
+按 1:1 原则，既有的 `search_contacts(query)` 与 `list_contacts(search=query)` 是同一个
+操作，并存违反"一个操作一个工具"。**删掉 `search_contacts`**，"找人"的入口统一到
+`list_contacts`：提示词、工具描述、既有测试与前端引用一并改掉。
+
+属 §2.3 同类的破坏性变更（工具名消失），已在阶段 2 一并执行。
 
 ## 4. 后端设计
 
@@ -230,6 +234,24 @@ class AiTool:
 - 删除类操作要在回复里复述将被删除的对象；
 - **读到多条候选时必须把候选复述给用户确认**，禁止自行挑选一条就改（§3.1）。
 
+### 4.6 过滤参数补齐：按联系人筛选（2026-10-06 用户要求）
+
+"按联系人筛选"在 UI 与 MCP 工具上是**同一个能力**（同一条 service 查询），
+按 1:1 原则两侧同时具备。逐个核对各 `list_*` 的 service 签名后，三处缺失：
+
+| 位置 | 现状 | 本轮改动 |
+|---|---|---|
+| `records.service.list_tasks` | 只有 `status` | 新增可选 `contact_id`（repository 的 JOIN 已有，加条件即可） |
+| `reminders.service.list_reminders` | 只有 `unread_only` | 新增可选 `contact_id`（`reminders.contact_id` 列已存在，只是没暴露成筛选） |
+| `dashboard.service.build_todo_board` | `(db, user, bucket, today)` | 新增可选 `contact_id`——**待办页消费的是它**，五源聚合逐源下沉过滤条件 |
+
+三处均为**纯新增可选参数**，不破坏既有调用方；REST 层同步暴露同名查询参数，
+AI 工具（`list_tasks` / `list_reminders` / `get_upcoming_todos`）同步带上。
+
+注意 `dashboard.build_todo_board` 的改动量最大：它不是单表查询，而是把过滤条件下推到
+五个来源各自的既有查询里（重要日期/任务/还款/活动/心愿），符合"口径唯一"——
+不新增聚合层过滤逻辑，只把参数透传下去。
+
 ## 5. 前端设计（AgentChat 确认面板）
 
 - 删除 `TOOL_LABELS` 硬编码，改从 `GET /ai/tools` 的 `label` 渲染；
@@ -252,6 +274,29 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
 面板自然显示 N 行供多选。这比引入数组型批量工具简单得多，也保住了
 「一条提议 = 一次可独立拒绝的动作」这个确认语义。
 
+### 5.2 列表页按联系人筛选（2026-10-06 用户要求）
+
+活动/礼物/心愿/资金/待办五个列表页在各自的 search、direction、status 筛选旁，**再加一个
+「联系人」下拉**。交互与口径：
+
+- 下拉**显示 `display_name`、值为 `contact_id`**——界面看到的是人名，请求里带的是 id，
+  与各页表格列现有的 `nameOf(row.contact_id)` 同一套做法；
+- 复用既有的 `composables/useContactOptions.ts`（已有 `options`(label=展示名, value=id)
+  与 `nameOf(id)`），**不新建选人组件**；
+- 可清空（`clearable`）表示"全部联系人"；切换后回第 1 页重载（与既有 search/status
+  的 `watch` 同一处，避免停在越界页看到空表）；
+- 样式只消费 `design/tokens.ts`。
+
+各页现状与改动：
+
+| 页面 | 现有筛选 | 改动 |
+|---|---|---|
+| `ActivitiesPage` | search | + 联系人 |
+| `GiftsPage` | search、direction | + 联系人 |
+| `WishlistPage` | search、status | + 联系人 |
+| `FundsPage` | search、status | + 联系人 |
+| `TasksPage` | bucket（四页签，数据源是 **dashboard 聚合板**） | + 联系人，依赖 §4.6 的 `build_todo_board` 改动 |
+
 ## 6. 测试
 
 - **契约测试**（新增 `tests/test_ai_registry.py`）：
@@ -261,13 +306,17 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
   4. `GET /ai/tools` 返回条数 == `ALL_TOOLS` 条数。
 - **服务层行为测试**：每个新执行器一个用例（真实 DB、打桩 service 边界），
   覆盖"成功落库"与"目标不存在 → 记 `ok=False` 不 500"两条路径。
+- **过滤参数测试**（§4.6 的三处改动）：`contact_id` 传入时只回该联系人的记录、
+  不传时回全集；`build_todo_board` 的五源下沉过滤各断言一条（防漏改某一源）。
+- **前端**：`useContactOptions` 与列表页筛选的组件测试——切换下拉后请求带
+  `contact_id` 且页码回 1（沿用既有的 vitest + @vue/test-utils 打桩风格）。
 - **不做 LLM 端到端测试**（需真实 key、不确定）。工具选择的正确性靠 description
   纪律 + 人工核验，不靠自动化断言。
 
 ## 7. 文档登记
 
 - `TECH_DECISIONS.md` 新增 D24（本设计 §2 的六条决策）；
-- `ARCHITECTURE.md` 第 4 节 `/mcp` 一行更新为"53 工具、读写分离、写全进队列"；
+- `ARCHITECTURE.md` 第 4 节 `/mcp` 一行更新为"52 工具、读写分离、写全进队列"；
 - `DATA_MODEL.md` 补 `pending_actions.preview` 列；
 - `ROADMAP.md` 加一节"agent 能力对等"与分期。
 
@@ -281,9 +330,10 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
 
 | 风险 | 处置 |
 |---|---|
-| 53 个工具的 `tools/list` 变长，模型选择变难 | 描述即契约 + 命名纪律；每阶段落地后人工核验典型话术 |
+| 52 个工具的 `tools/list` 变长，模型选择变难 | 描述即契约 + 命名纪律；每阶段落地后人工核验典型话术 |
 | `contact_name → contact_id` 破坏外部 MCP 客户端 | 已在 §2.3 显式声明；schema 动态下发，客户端重连即恢复 |
 | 确认队列的确认成本（多步任务要确认多次） | 接受。这是"不加档"决定的已知代价；面板的多选批量确认（§5.1）缓解典型场景（如"把这 5 条过期待办标完成"） |
+| `build_todo_board` 的过滤要下推到五个来源，漏改一源会静默返回多余记录 | §6 增加"五源各断言一条"的测试，不靠人工核对 |
 | 写工具执行器从 3 增到 31 条，`pending.py` 会变长 | 按模块拆 `executors/` 子包（阶段 1 实施），保持单文件职责清晰 |
 
 ## 10. 分期（5 阶段，每阶段可独立验收）
@@ -291,10 +341,10 @@ Agent 侧不需要配套的「批量工具」：要批量改 N 条，模型就�
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
 | **1. 基础设施** | `AiTool.label` + `/ai/tools` 下发 + 前端消费；`pending_actions.preview` 列与迁移；`AgentChat` 的 update/delete 渲染 + **多选批量确认/驳回**；契约测试；`pending.py` 拆 `executors/` | 现有 3 个写工具的确认面板仍正常；多选后能一次确认多条且逐条记结果；契约测试全绿；`EXECUTORS` 拆分后现有测试不变 |
-| **2. contacts** | `list_contacts`、`get_contact` + 6 个写工具（共 8）；`contact_name → contact_id` 硬切；提示词改/删纪律与多命中确认（§3.4） | 对话完成"改唐琴电话""给唐琴加农历生日""把某人升级为直接联系人"，面板显示 diff |
-| **3. records** | 6 个读 + 7 个写（共 13）；`list_tasks` 的 service/repository 补 `contact_id` 过滤（含 REST 层暴露） | "把这条待办标完成""改上周活动的参与者""删掉那条备注" |
-| **4. gifts + funds** | 5 个读（gifts/wishlist/funds）+ 10 个写（共 15） | "记一笔随礼""把心愿标为已送出并转成礼物记录" |
-| **5. graph + reminders** | 3 个读 + 5 个写（含 `create_relationship_type`，共 8） | "张三是我爸的弟弟，记下来""把提醒都标已读" |
+| **2. contacts** | `list_contacts`、`get_contact` + 6 个写工具（共 8）；**删除 `search_contacts`**（§3.5），"找人"统一走 `list_contacts`；`contact_name → contact_id` 硬切；提示词改/删纪律与多命中确认（§3.4） | 对话完成"改唐琴电话""给唐琴加农历生日""把某人升级为直接联系人"，面板显示 diff；"找一下老王"由 `list_contacts` 承接 |
+| **3. records + 待办页** | 6 个读 + 7 个写（共 13）；`records.list_tasks` 补 `contact_id`；**`dashboard.build_todo_board` 补 `contact_id`（过滤下推五源）**；活动页、待办页加联系人筛选（§5.2） | 对话完成"把这条待办标完成""唐琴有什么待办"；活动页/待办页可按人筛选，下拉显示人名、请求带 id |
+| **4. gifts + funds** | 5 个读 + 10 个写（共 15）；礼物/心愿/资金三页加联系人筛选（§5.2） | "记一笔随礼""把心愿标为已送出并转成礼物记录"；三页可按人筛选 |
+| **5. graph + reminders** | 3 个读 + 5 个写（共 8）；`reminders.list_reminders` 补 `contact_id`；提醒页加联系人筛选（§5.2） | "张三是我爸的弟弟，记下来""把提醒都标已读"；提醒页可按人筛选 |
 
 每阶段结束跑全量（后端 pytest + ruff、前端 vitest + build）并在开发环境浏览器核验；
 每阶段的工具选择质量由用户实际使用后反馈，不达标就调整 description 再进下一阶段。
