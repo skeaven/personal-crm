@@ -198,7 +198,8 @@ class AiTool:
 cd backend && uv run pytest tests/test_ai_tools.py -q -k label
 ```
 
-预期：2 passed（第二个用例此时仍会失败——`ToolOut` 还没有 `label`，见下）
+预期：**1 passed, 1 failed**。第一个用例（`test_every_tool_has_label`）这时该绿；
+第二个（端点用例）仍红，因为 `ToolOut` 还没有 `label` — 下一步补。
 
 - [ ] **Step 5: 让 `ToolOut` 与端点带上 label**
 
@@ -846,7 +847,8 @@ describe('AgentChat 确认面板渲染与批量', () => {
     const wrapper = mount(AgentChat, MOUNT_OPTIONS)
     await flushPromises()
 
-    expect(wrapper.get('.pending-item').text()).toContain('phone: 138 → 139')
+    // phone 经 CONTACT_FIELD_LABELS 映射为「电话」——面板是给人看的，不是给字段名看的
+    expect(wrapper.get('.pending-item').text()).toContain('电话: 138 → 139')
   })
 
   it('delete 提议显示将删除的对象', async () => {
@@ -1330,7 +1332,7 @@ async def test_update_contact_rejects_unknown_field(db_session, make_user):
     demo, _ = await make_user(username="demo")
     contact = await create_contact_for(demo, name="唐琴")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(PydanticValidationError):
         await _run_tool(
             db_session, demo, "update_contact", contact_id=contact.id, owner_user_id=999
         )
@@ -1341,7 +1343,7 @@ async def test_update_contact_rejects_empty_change_set(db_session, make_user):
     demo, _ = await make_user(username="demo")
     contact = await create_contact_for(demo, name="唐琴")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(PydanticValidationError):
         await _run_tool(db_session, demo, "update_contact", contact_id=contact.id)
 
 
@@ -1366,9 +1368,18 @@ async def test_delete_contact_proposal_carries_summary(db_session, make_user):
     assert action.preview == {"summary": f"唐琴（id={contact.id}）"}
 ```
 
-`test_ai_tools.py` 顶部补 import：`import pytest`、`from pydantic import ValidationError`、
-`from app.core.errors import NotFoundError`、
-`from app.modules.ai import pending as pending_service`（若无则加）。
+`test_ai_tools.py` 顶部补 import。**注意两个 `ValidationError` 同名不同源，必须分开 import**：
+
+```python
+import pytest
+from pydantic import ValidationError as PydanticValidationError   # schema 层：extra/字段校验
+from app.core.errors import NotFoundError, ValidationError        # 业务层：parse_iso_date 等
+from app.modules.ai import pending as pending_service
+```
+
+本任务（Task 8）的 schema 用例（未知字段、空改动）断言 `PydanticValidationError`；
+Task 9 的非法日期用例断言 `ValidationError`。两处都别写错——写成同一个会让测试
+以"异常类型不匹配"的形式红，而不是真的失败。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -1681,11 +1692,15 @@ async def test_add_lunar_important_date_proposal(db_session, make_user):
 
 
 async def test_add_solar_date_rejects_bad_date_string(db_session, make_user):
-    """公历日期字符串非法：提议阶段就报错，让模型当场改，而不是等到用户确认才失败。"""
+    """公历日期字符串非法：提议阶段就报错，让模型当场改，而不是等到用户确认才失败。
+
+    注意抛的是 `app.core.errors.ValidationError`（`registry.parse_iso_date` 抛的），
+    不是 pydantic 的同名异常——两者同名不同源，import 见本任务开头。
+    """
     demo, _ = await make_user(username="demo")
     contact = await create_contact_for(demo, name="唐琴")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):  # app.core.errors 那个，不是 pydantic 的
         await _run_tool(
             db_session,
             demo,
@@ -2042,7 +2057,7 @@ async def test_create_task_rejects_old_contact_name_field(db_session, make_user)
     """旧字段 contact_name 必须以报错的方式暴露，不能静默建出一条没关联人的待办。"""
     demo, _ = await make_user(username="demo")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(PydanticValidationError):
         await _run_tool(db_session, demo, "create_task", title="打电话", contact_name="唐琴")
 
 
