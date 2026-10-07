@@ -331,7 +331,7 @@
   - label 下移：前端 `AgentChat.vue` 的 `TOOL_LABELS` 是硬编码中文名映射（且为 `create_contact` 写了专用渲染器），工具面扩到 52 个后不可维护；label 只走内部端点供前端渲染确认面板。
   - preview 列：确认面板要能回答「**这条提议会把什么改成什么**」，update/delete 必须显示现状与差异。备选（面板自己调 REST 读现状）被否：确认的那一刻读到的可能已不是提议时的状态。
 - **影响**：
-  - **工具面 9 → 52**：删 `search_contacts`（并入 `list_contacts`，§3.5）+ 新增 44，其中读 21、写 31。`/mcp` 与内部助理同源（`registry.py::ALL_TOOLS`），补工具即两条入口同时生效。
+  - **工具面 9 → 52**：删 `search_contacts`（并入 `list_contacts`，§3.5）+ 新增 44（读 16、写 28），总数 52（读 21、写 31）。`/mcp` 与内部助理同源（`registry.py::ALL_TOOLS`），补工具即两条入口同时生效。
   - **破坏性变更**：`contact_name → contact_id`（含 `participant_names → participant_ids`），外部 MCP 客户端重连即恢复。
   - `pending_actions` 加 `preview` 列（`alembic revision --autogenerate`）；`DATA_MODEL.md` 同步。
   - 前端确认面板：删 `TOOL_LABELS`、按 `preview` 渲染（update 两列 diff / delete 实体摘要 / create 直读），支持**多选 + 批量确认/驳回**（前端循环调用既有 approve/reject，不新增后端接口，逐条记结果、不做整体回滚）。
