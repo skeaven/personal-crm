@@ -34,6 +34,7 @@
 | D20 | **助理会话持久化**：session（业务）/ thread（LangGraph）分层命名；`ai_sessions` 索引表 + `AsyncPostgresSaver`；session_id 前端生成 | ✅ | 2026-09-27 |
 | D21 | **视觉导入**：与 agent 同一 LLM（被动检测视觉能力，不做模型名启发式）；图片作多模态消息直通 agent；落库一律经既有确认队列（不引入 interrupt） | ✅ | 2026-09-30 |
 | D22 | **提醒引擎**：三源幂等重建（UNIQUE user+source+ref+due，已读不复活、源头消失清理）+ asyncio 1h 进程内扫描 + 应用内通知（邮件 provider 位预留） | ✅ | 2026-09-23 |
+| D24 | **MCP 工具面补齐**：REST 端点 → 工具 1:1 映射（52 个），寻址统一 `contact_id` 硬切，写工具一律进确认队列，label 与 preview 由后端下发 | 🚧 | 2026-10-06 |
 
 ---
 
@@ -311,3 +312,29 @@
   4. **硬切不留兼容层**：单仓自托管、前端是唯一消费者；`/mcp` 的 `create_contact` 工具入参同步改为 `name`（工具 schema 由 `tools/list` 动态下发，无缓存问题）。
 - **迁移**：加 `name` → 回填 `trim(coalesce(last_name,'')) || trim(coalesce(first_name,''))` → 删三列。**降级不可逆**（整名无法可靠拆回姓/名），降级只还原列结构、整名存入 `last_name`（超 50 字符截断）。
 - **影响**：`ContactBase`/`Create`/`Update`/`Out` 三字段改 `name`；`GET /contacts/duplicate-check` 查询参数改 `name`；名册搜索由 4 条件降为 2；同名检测由「姓+名拼接全等」降为单列全等（顺带修掉「陈」+「建国」与「陈建」+「国」互相误判的老问题）。
+
+## D24 MCP 工具面补齐：agent 与界面能力对等 🚧（2026-10-06）
+
+- **背景**：一次真实使用暴露了缺口——用户要求「更新唐琴（id=39）的资料」，assistant 回答「我没有修改联系人的工具，只能新建」，并提示「别再确认编号 3，否则会出现两条唐琴」。这不是模型能力问题，是**工具面只有 `create_*`、没有 update/delete**，模型被迫用新建模拟修改。用户目标原话：「我期望的是能够用 ai 完成所有的增删改查业务，也就是说完全使用 agent 作为唯一入口也能正常使用这个系统」。现状：REST 侧约 50 个业务端点，agent 只够得着 9 个（读 6：`search_contacts`/`kinship_of`/`get_upcoming_todos`/`get_contact_timeline`/`semantic_search`/`get_stats`；写 3：`create_task`/`create_activity`/`create_contact`）。三类缺口：改与删整体缺失、礼物（含心愿）/资金/备注三模块零覆盖、读不完整（没有「按 id 读完整资料」的工具，模型改之前无法回读当前值）。
+- **决策**（完整设计与逐端点清单见 `docs/superpowers/specs/2026-10-06-mcp-tool-coverage-design.md`，其 §2 即以下六条）：
+  1. **工具组织：扁平 + 实体前缀（否决域聚合）**：52 个工具平铺，命名 `<动词>_<实体>`；动词表固定为 `list / get / create / update / delete / promote / convert / mark`。否决「按实体域聚合」（`contact(action, ...)`）与「高频扁平 + 低频聚合」两种混合方案。
+  2. **风险档位不变：`read` / `write_queue`**：不新增 `destructive` 档，删除与建待办走同一条确认队列。
+  3. **寻址统一为 `contact_id`（破坏性变更）**：新工具一律用 `contact_id`；既有的三个按名字寻址的工具（`create_task.contact_name` / `create_activity.participant_names` / `get_contact_timeline.contact_name`）同步改为 id，**不留兼容层**（不保留 `contact_name` 旁路、不做名字→id 静默回退、不设废弃期；`participant_names` 因多值改为 `participant_ids`）。
+  4. **设置类不开放**：agent 不获得任何 `app_settings` 写入工具（连提议工具也不开），设置页仍是唯一入口。
+  5. **label 下移到 `AiTool`**：`AiTool` 增加 `label: str`（中文名），经既有 `GET /ai/tools` 下发（`ToolOut` 同步加字段），前端删除硬编码的中文名映射；**不下发到 MCP**（`tools/list` 是协议标准形状 name/description/inputSchema，塞自定义字段会污染协议）。
+  6. **`pending_actions` 增加 `preview` 列**：新增 `preview JSONB NULL`，专放**渲染用快照**（update 存本次会改动字段的 before 值、delete 存实体摘要、create 类不填），与 `payload` 分离——执行器无感，`payload` 语义不变。
+- **理由**：
+  - 域聚合的 schema 是字段并集，模型要同时选对 action 与字段，**出错率反而更高**，且 pydantic 无法表达「删除时不该传字段」；混合方案让两套规则并存，模型与人脑都要记「哪类用哪种」。本仓库整体风格是「显式优于灵活」（schema 分离、表写权独占、口径唯一），域聚合的「灵活」正是它一直规避的东西。代价是 `tools/list` 变长（约 4–6k token/轮），对策是**描述即契约**——每个工具的 description 必须写明「何时用我、何时用别人」并纳入测试。
+  - 风险档位：规则无例外才不需要记例外；且经真实使用验证，确认面板的成本可接受。
+  - 寻址统一：id 无歧义，且模型总能先经读工具（`list_contacts`，合并前为 `search_contacts`）拿到 id；按名字寻址在多命中时静默取第一个（同名/同音在中文人名里是常态），是错误写入源。不留兼容层的破坏性影响限于外部 MCP 客户端的工具 schema——schema 由 `tools/list` 动态下发、无客户端缓存问题，客户端重连即拿到新形状（同 D23 对 `/mcp` 的处置）。
+  - 设置类不开放：`app_settings.value` 存的是 LLM/Embedding/高德 API key（明文，界面仅掩码回显）；一旦经工具写入，密钥会同时落进 `pending_actions.payload`、确认面板渲染、以及会话 checkpointer 的对话历史——三处全是明文。
+  - label 下移：前端 `AgentChat.vue` 的 `TOOL_LABELS` 是硬编码中文名映射（且为 `create_contact` 写了专用渲染器），工具面扩到 52 个后不可维护；label 只走内部端点供前端渲染确认面板。
+  - preview 列：确认面板要能回答「**这条提议会把什么改成什么**」，update/delete 必须显示现状与差异。备选（面板自己调 REST 读现状）被否：确认的那一刻读到的可能已不是提议时的状态。
+- **影响**：
+  - **工具面 9 → 52**：删 `search_contacts`（并入 `list_contacts`，§3.5）+ 新增 44，其中读 21、写 31。`/mcp` 与内部助理同源（`registry.py::ALL_TOOLS`），补工具即两条入口同时生效。
+  - **破坏性变更**：`contact_name → contact_id`（含 `participant_names → participant_ids`），外部 MCP 客户端重连即恢复。
+  - `pending_actions` 加 `preview` 列（`alembic revision --autogenerate`）；`DATA_MODEL.md` 同步。
+  - 前端确认面板：删 `TOOL_LABELS`、按 `preview` 渲染（update 两列 diff / delete 实体摘要 / create 直读），支持**多选 + 批量确认/驳回**（前端循环调用既有 approve/reject，不新增后端接口，逐条记结果、不做整体回滚）。
+  - 三处 service 补可选 `contact_id` 过滤参数（`records.list_tasks`、`reminders.list_reminders`、`dashboard.build_todo_board`——后者过滤下推五源），纯新增、不破坏调用方；REST 与工具同步暴露。
+  - 写工具执行器 3 → 31，`pending.py` 按模块拆 `executors/` 子包。
+  - 分五阶段落地见 `ROADMAP.md`「Agent 能力对等」；`ARCHITECTURE.md` 第 4 节 `/mcp` 一行同步更新为「52 工具、读写分离、写全进队列」。
