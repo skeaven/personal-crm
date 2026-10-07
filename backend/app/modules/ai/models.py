@@ -33,6 +33,9 @@ class PendingAction(Base, TimestampMixin):
     requested_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
     tool_name: Mapped[str] = mapped_column(String(100), comment="MCP 工具名")
     payload: Mapped[dict] = mapped_column(JSONB, comment="工具入参")
+    preview: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="确认面板的渲染快照（before/summary），与 payload 分离"
+    )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True, comment="agent 提议理由")
     status: Mapped[str] = mapped_column(
         Enum(*PENDING_STATUS_VALUES, name="pending_status_enum"),

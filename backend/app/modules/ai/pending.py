@@ -19,14 +19,24 @@ from app.modules.records.schemas import ActivityCreate, TaskCreate
 
 
 async def propose(
-    db: AsyncSession, user: User, tool_name: str, payload: dict, reason: str | None = None
+    db: AsyncSession,
+    user: User,
+    tool_name: str,
+    payload: dict,
+    reason: str | None = None,
+    preview: dict | None = None,
 ) -> PendingAction:
-    """写入提议入队（status=pending，不触达业务表）。"""
+    """写入提议入队（status=pending，不触达业务表）。
+
+    preview 只服务确认面板的渲染（update 放改动字段的原值、delete 放实体摘要），
+    执行器只读 payload——两者分离，避免渲染需求污染落库契约。
+    """
     action = PendingAction(
         family_id=user.family_id,
         requested_by_user_id=user.id,
         tool_name=tool_name,
         payload=payload,
+        preview=preview,
         reason=reason,
         status="pending",
     )
@@ -205,11 +215,12 @@ async def reject(db: AsyncSession, user: User, action_id: int) -> PendingAction:
 
 
 def to_dict(action: PendingAction) -> dict:
-    """提议的 API 输出形状（payload 原样透传给确认 UI）。"""
+    """提议的 API 输出形状（payload 与 preview 原样透传给确认 UI）。"""
     return {
         "id": action.id,
         "tool_name": action.tool_name,
         "payload": action.payload,
+        "preview": action.preview,
         "status": action.status,
         "result": action.result,
         "created_at": action.created_at.isoformat(),

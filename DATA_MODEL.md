@@ -211,6 +211,7 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 | family_id / requested_by_user_id | FK | 提议人 |
 | tool_name | VARCHAR(100) | MCP 工具名 |
 | payload | JSONB | 工具入参 |
+| preview | JSONB NULL | 确认面板的渲染快照（update 放改动字段原值、delete 放实体摘要）；与 payload 分离，执行器只读 payload |
 | reason | TEXT NULL | agent 的提议理由（展示给确认人） |
 | status | ENUM(pending, approved, rejected, expired, executed) | 状态机 |
 | decided_by | BIGINT FK→users NULL | 确认人 |

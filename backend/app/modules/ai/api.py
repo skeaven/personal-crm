@@ -38,6 +38,7 @@ class PendingActionOut(BaseModel):
     id: int
     tool_name: str
     payload: dict
+    preview: dict | None = None
     status: str
     result: dict | None = None
     created_at: str

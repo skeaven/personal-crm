@@ -353,6 +353,7 @@ export interface PendingActionOut {
   id: number
   tool_name: string
   payload: Record<string, unknown>
+  preview: Record<string, unknown> | null
   status: 'pending' | 'approved' | 'rejected' | 'executed'
   result: { ok: boolean; message?: string; error?: string } | null
   created_at: string

@@ -187,3 +187,28 @@ async def test_approve_payload_failing_schema_records_failure_instead_of_raising
         assert approved.status == "executed", f"{payload} 未被执行"
         assert approved.result["ok"] is False, f"{payload} 应记失败"
         assert approved.result["error"], f"{payload} 应给出失败原因"
+
+
+async def test_propose_stores_preview_snapshot(db_session, make_user):
+    """preview 与 payload 分离：执行器只消费 payload，preview 仅供确认面板渲染差异。"""
+    demo, _ = await make_user(username="demo")
+
+    action = await pending_service.propose(
+        db_session,
+        demo,
+        "update_contact",
+        {"contact_id": 39, "phone": "139"},
+        preview={"before": {"phone": "138"}},
+    )
+
+    assert action.preview == {"before": {"phone": "138"}}
+    assert action.payload == {"contact_id": 39, "phone": "139"}
+
+
+async def test_propose_without_preview_stores_null(db_session, make_user):
+    """create 类不填 preview；列可空，面板按 payload 直读渲染。"""
+    demo, _ = await make_user(username="demo")
+
+    action = await pending_service.propose(db_session, demo, "create_task", {"title": "买花"})
+
+    assert action.preview is None
