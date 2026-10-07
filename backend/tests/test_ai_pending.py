@@ -271,3 +271,49 @@ async def test_approve_delete_contact_archives_it(db_session, make_user):
         await db_session.execute(select(Contact).where(Contact.id == contact.id))
     ).scalar_one()
     assert row.status == "archived", "软删：行仍在，只是 status 变了"
+
+
+async def test_approve_add_lunar_date_creates_it(db_session, make_user):
+    """确认加农历生日：落库后能经 get_contact 读回，农历字段正确。"""
+    from app.modules.contacts import service as contacts_service
+
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    action = await pending_service.propose(
+        db_session,
+        demo,
+        "add_important_date",
+        {
+            "contact_id": contact.id,
+            "type": "birthday",
+            "calendar": "lunar",
+            "lunar_month": 9,
+            "lunar_day": 24,
+            "lunar_is_leap": False,
+            "yearly": True,
+            "reminder_lead_days": [7, 1],
+        },
+    )
+
+    result = await pending_service.approve(db_session, demo, action.id)
+
+    assert result.result["ok"] is True
+    detail = await contacts_service.get_contact(db_session, demo, contact.id)
+    assert [(d.lunar_month, d.lunar_day) for d in detail.dates] == [(9, 24)]
+
+
+async def test_approve_delete_missing_date_records_failure(db_session, make_user):
+    """提议引用的日期已被删：记 ok=False，不 500 卡在 pending。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    action = await pending_service.propose(
+        db_session,
+        demo,
+        "delete_important_date",
+        {"contact_id": contact.id, "date_id": 999999},
+    )
+
+    result = await pending_service.approve(db_session, demo, action.id)
+
+    assert result.status == "executed"
+    assert result.result["ok"] is False

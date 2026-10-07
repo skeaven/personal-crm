@@ -349,3 +349,89 @@ async def test_delete_contact_proposal_carries_summary(db_session, make_user):
 
     action = (await pending_service.list_pending(db_session, demo))[0]
     assert action.preview == {"summary": f"唐琴（id={contact.id}）"}
+
+
+async def test_add_lunar_important_date_proposal(db_session, make_user):
+    """农历生日提议：公历日期字符串转 date 后入队，农历字段原样带过去。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    text = await _run_tool(
+        db_session,
+        demo,
+        "add_important_date",
+        contact_id=contact.id,
+        calendar="lunar",
+        lunar_month=9,
+        lunar_day=24,
+    )
+
+    assert "已生成加重要日期提议" in text
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.payload["lunar_month"] == 9
+    assert action.payload["contact_id"] == contact.id
+
+
+async def test_add_solar_date_rejects_bad_date_string(db_session, make_user):
+    """公历日期字符串非法：提议阶段就报错，让模型当场改，而不是等到用户确认才失败。
+
+    注意抛的是 `app.core.errors.ValidationError`（`registry.parse_iso_date` 抛的），
+    不是 pydantic 的同名异常——两者同名不同源，import 见本任务开头。
+    """
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    with pytest.raises(ValidationError):  # app.core.errors 那个，不是 pydantic 的
+        await _run_tool(
+            db_session,
+            demo,
+            "add_important_date",
+            contact_id=contact.id,
+            calendar="solar",
+            date_solar="2026-13-45",
+        )
+
+
+async def test_delete_important_date_proposal_carries_summary(db_session, make_user):
+    """删日期提议：preview 摘要写清是谁的哪条日期，面板才显示得明白。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    date_row = await create_date_for(demo, contact.id, type="birthday", calendar="solar")
+
+    await _run_tool(
+        db_session, demo, "delete_important_date", contact_id=contact.id, date_id=date_row.id
+    )
+
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert "唐琴" in action.preview["summary"]
+    assert "birthday" in action.preview["summary"]
+
+
+async def test_update_important_date_preview_carries_only_changed_originals(
+    db_session, make_user
+):
+    """改日期提议：preview 只放本次改动字段的原值（date_solar 为 isoformat 文本），
+    不是整行快照——面板要显示的是"哪个字段从什么改成了什么"。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    date_row = await create_date_for(
+        demo, contact.id, type="birthday", calendar="solar", date_solar="1990-03-05"
+    )
+
+    text = await _run_tool(
+        db_session,
+        demo,
+        "update_important_date",
+        contact_id=contact.id,
+        date_id=date_row.id,
+        date_solar="1991-04-06",
+    )
+
+    assert "已生成修改重要日期提议" in text
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.payload == {
+        "contact_id": contact.id,
+        "date_id": date_row.id,
+        "date_solar": "1991-04-06",
+    }
+    assert action.preview == {"before": {"date_solar": "1990-03-05"}}

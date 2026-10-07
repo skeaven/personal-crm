@@ -6,10 +6,13 @@
 
 from app.modules.ai.executors.activities import create_activity
 from app.modules.ai.executors.contacts import (
+    add_important_date,
     create_contact,
     delete_contact,
+    delete_important_date,
     promote_contact,
     update_contact,
+    update_important_date,
 )
 from app.modules.ai.executors.tasks import create_task
 
@@ -20,4 +23,7 @@ EXECUTORS = {
     "update_contact": update_contact,
     "delete_contact": delete_contact,
     "promote_contact": promote_contact,
+    "add_important_date": add_important_date,
+    "update_important_date": update_important_date,
+    "delete_important_date": delete_important_date,
 }

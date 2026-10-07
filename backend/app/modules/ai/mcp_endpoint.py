@@ -26,17 +26,24 @@ mcp_server = MCPServer("personal-crm")
 
 
 def _dynamic_handler(ai_tool):
-    """按工具 schema 动态构造平铺签名函数（MCPServer 由签名生成 JSON Schema）。"""
-    parameters = []
+    """按工具 schema 动态构造平铺签名函数（MCPServer 由签名生成 JSON Schema）。
+
+    inspect.Signature 要求无默认值参数必须排在带默认值参数之前，而 pydantic 模型
+    对字段顺序没有这个限制。所以不能按 model_fields 原顺序直接铺：只要有「带默认
+    值的字段在前、必填字段在后」的 schema（如 calendar 声明在 type/title 之后），
+    构造 Signature 就会抛 ValueError，整个应用在 import 阶段就起不来。
+    """
+    required: list[inspect.Parameter] = []
+    optional: list[inspect.Parameter] = []
     for name, field in ai_tool.args_schema.model_fields.items():
         if field.is_required():
-            parameters.append(
+            required.append(
                 inspect.Parameter(
                     name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=field.annotation
                 )
             )
         else:
-            parameters.append(
+            optional.append(
                 inspect.Parameter(
                     name,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -56,7 +63,7 @@ def _dynamic_handler(ai_tool):
             tool_args = build_args(ai_tool, kwargs)
             return await ai_tool.run(session, user, tool_args)
 
-    handler.__signature__ = inspect.Signature(parameters)
+    handler.__signature__ = inspect.Signature([*required, *optional])
     handler.__doc__ = ai_tool.description
     return handler
 

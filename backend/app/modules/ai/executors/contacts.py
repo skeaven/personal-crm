@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
 from app.modules.contacts import service as contacts_service
-from app.modules.contacts.schemas import ContactCreate, ContactUpdate
+from app.modules.contacts.schemas import (
+    ContactCreate,
+    ContactUpdate,
+    ImportantDateCreate,
+    ImportantDateUpdate,
+)
 
 # D23 之前的 create_contact payload 用姓/名两键；姓名已并为 name，旧键会被 pydantic
 # 静默忽略（extra 默认 ignore），放过去就会丢掉姓名建出一条无名联系人，故显式拦下。
@@ -58,3 +63,27 @@ async def promote_contact(db: AsyncSession, user: User, payload: dict) -> dict:
     """边缘联系人升级为直接联系人：升级保留全部数据（与其他入口同一个函数）。"""
     contact = await contacts_service.promote_contact(db, user, payload["contact_id"])
     return {"ok": True, "message": f"{contact.display_name} 已升级为直接联系人"}
+
+
+async def add_important_date(db: AsyncSession, user: User, payload: dict) -> dict:
+    """加重要日期：走 contacts service，与原端点同一套历法校验。"""
+    body = {key: value for key, value in payload.items() if key != "contact_id"}
+    data = ImportantDateCreate(**body)
+    contact = await contacts_service.create_date(db, user, payload["contact_id"], data)
+    return {"ok": True, "message": f"已给 {contact.display_name} 加上重要日期"}
+
+
+async def update_important_date(db: AsyncSession, user: User, payload: dict) -> dict:
+    """改重要日期：只改提交的字段。"""
+    body = {key: value for key, value in payload.items() if key not in ("contact_id", "date_id")}
+    data = ImportantDateUpdate(**body)
+    contact = await contacts_service.update_date(
+        db, user, payload["contact_id"], payload["date_id"], data
+    )
+    return {"ok": True, "message": f"已更新 {contact.display_name} 的重要日期"}
+
+
+async def delete_important_date(db: AsyncSession, user: User, payload: dict) -> dict:
+    """删重要日期。"""
+    await contacts_service.delete_date(db, user, payload["contact_id"], payload["date_id"])
+    return {"ok": True, "message": "已删除该重要日期"}

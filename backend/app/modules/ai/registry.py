@@ -142,6 +142,58 @@ class ContactIdArgs(BaseModel):
     contact_id: int
 
 
+class AddImportantDateArgs(BaseModel):
+    """加重要日期入参：calendar=solar 必填 date_solar；calendar=lunar 必填合法农历月日。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contact_id: int
+    type: str = Field(default="birthday", description="birthday/anniversary/other")
+    title: str | None = Field(default=None, max_length=100)
+    calendar: Literal["solar", "lunar"]
+    date_solar: str | None = Field(
+        default=None, description="公历日期 YYYY-MM-DD（calendar=solar）"
+    )
+    lunar_month: int | None = Field(default=None, ge=1, le=12)
+    lunar_day: int | None = Field(default=None, ge=1, le=30)
+    lunar_is_leap: bool = False
+    yearly: bool = True
+    reminder_lead_days: list[int] = Field(default_factory=lambda: [7, 1])
+
+
+class UpdateImportantDateArgs(BaseModel):
+    """改重要日期入参：只提交要改的项。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contact_id: int
+    date_id: int
+    title: str | None = Field(default=None, max_length=100)
+    calendar: Literal["solar", "lunar"] | None = None
+    date_solar: str | None = Field(default=None, description="公历日期 YYYY-MM-DD")
+    lunar_month: int | None = Field(default=None, ge=1, le=12)
+    lunar_day: int | None = Field(default=None, ge=1, le=30)
+    lunar_is_leap: bool | None = None
+    yearly: bool | None = None
+    reminder_lead_days: list[int] | None = None
+
+    @model_validator(mode="after")
+    def validate_at_least_one_change(self) -> "UpdateImportantDateArgs":
+        """至少要改一个字段（contact_id/date_id 是寻址，不算改动）。"""
+        if not self.model_dump(exclude={"contact_id", "date_id"}, exclude_none=True):
+            raise ValueError("至少要指定一个要修改的字段")
+        return self
+
+
+class DateIdArgs(BaseModel):
+    """删重要日期入参。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contact_id: int
+    date_id: int
+
+
 # ---------- 查询类工具（read，直执行） ----------
 
 
@@ -410,6 +462,93 @@ async def _run_queue_promote_contact(db: AsyncSession, user, args: ContactIdArgs
     )
 
 
+async def _run_queue_add_important_date(db: AsyncSession, user, args: AddImportantDateArgs) -> str:
+    """加重要日期提议入队：提议阶段就用原 schema 校验，模型能当场改错。"""
+    from app.modules.ai import pending as pending_service
+    from app.modules.contacts.schemas import ImportantDateCreate
+
+    data = ImportantDateCreate(
+        type=args.type,
+        title=args.title,
+        calendar=args.calendar,
+        date_solar=parse_iso_date(args.date_solar, "date_solar") if args.date_solar else None,
+        lunar_month=args.lunar_month,
+        lunar_day=args.lunar_day,
+        lunar_is_leap=args.lunar_is_leap,
+        yearly=args.yearly,
+        reminder_lead_days=args.reminder_lead_days,
+    )
+    payload = {
+        "contact_id": args.contact_id,
+        **data.model_dump(mode="json", exclude_none=True),
+    }
+    action = await pending_service.propose(db, user, "add_important_date", payload)
+    when = (
+        data.date_solar.isoformat()
+        if data.date_solar
+        else f"农历 {data.lunar_month} 月 {data.lunar_day} 日"
+    )
+    return (
+        f"已生成加重要日期提议（编号 {action.id}，待确认）：{when}。"
+        f"需要用户在界面确认后才会生效。"
+    )
+
+
+async def _run_queue_update_important_date(
+    db: AsyncSession, user, args: UpdateImportantDateArgs
+) -> str:
+    """改重要日期提议入队：preview 取该日期的字段原值供面板显示差异。"""
+    from app.modules.ai import pending as pending_service
+
+    detail = await contacts_service.get_contact(db, user, args.contact_id)
+    current = next((item for item in detail.dates if item.id == args.date_id), None)
+    if current is None:
+        return f"没有找到 id={args.date_id} 的重要日期（或它不属于这位联系人）"
+    changes = args.model_dump(exclude={"contact_id", "date_id"}, exclude_none=True)
+    if "date_solar" in changes:
+        changes["date_solar"] = parse_iso_date(changes["date_solar"], "date_solar").isoformat()
+    before = {}
+    for key in changes:
+        value = getattr(current, key)
+        # preview 要落 JSONB：date 对象进不了 json.dumps，日期字段统一转 isoformat 文本
+        before[key] = value.isoformat() if isinstance(value, date) else value
+    action = await pending_service.propose(
+        db,
+        user,
+        "update_important_date",
+        {"contact_id": args.contact_id, "date_id": args.date_id, **changes},
+        preview={"before": before},
+    )
+    summary = "、".join(f"{key} → {value}" for key, value in changes.items())
+    return (
+        f"已生成修改重要日期提议（编号 {action.id}，待确认）：{detail.display_name} 的 "
+        f"{summary}。需要用户在界面确认后才会生效。"
+    )
+
+
+async def _run_queue_delete_important_date(db: AsyncSession, user, args: DateIdArgs) -> str:
+    """删重要日期提议入队：preview 摘要写清是谁的哪条日期。"""
+    from app.modules.ai import pending as pending_service
+
+    detail = await contacts_service.get_contact(db, user, args.contact_id)
+    current = next((item for item in detail.dates if item.id == args.date_id), None)
+    if current is None:
+        return f"没有找到 id={args.date_id} 的重要日期（或它不属于这位联系人）"
+    when = (
+        current.date_solar.isoformat()
+        if current.date_solar
+        else f"农历 {current.lunar_month} 月 {current.lunar_day} 日"
+    )
+    action = await pending_service.propose(
+        db,
+        user,
+        "delete_important_date",
+        {"contact_id": args.contact_id, "date_id": args.date_id},
+        preview={"summary": f"{detail.display_name} 的 {current.type} {when}"},
+    )
+    return f"已生成删除重要日期提议（编号 {action.id}，待确认）。需要用户在界面确认后才会执行。"
+
+
 # ---------- 注册表 ----------
 
 
@@ -544,6 +683,33 @@ ALL_TOOLS: list[AiTool] = [
         risk="write_queue",
         args_schema=ContactIdArgs,
         run=_run_queue_promote_contact,
+    ),
+    AiTool(
+        name="add_important_date",
+        label="加重要日期",
+        description=(
+            "给某位联系人加一条重要日期（生日/纪念日），支持公历与农历"
+            "（需用户确认后生效）"
+        ),
+        risk="write_queue",
+        args_schema=AddImportantDateArgs,
+        run=_run_queue_add_important_date,
+    ),
+    AiTool(
+        name="update_important_date",
+        label="改重要日期",
+        description="修改某位联系人的一条重要日期（需用户确认后生效）",
+        risk="write_queue",
+        args_schema=UpdateImportantDateArgs,
+        run=_run_queue_update_important_date,
+    ),
+    AiTool(
+        name="delete_important_date",
+        label="删重要日期",
+        description="删除某位联系人的一条重要日期（需用户确认后生效）",
+        risk="write_queue",
+        args_schema=DateIdArgs,
+        run=_run_queue_delete_important_date,
     ),
 ]
 

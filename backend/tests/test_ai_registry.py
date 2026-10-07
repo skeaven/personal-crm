@@ -11,7 +11,9 @@ from app.modules.ai import registry
 from app.modules.ai.pending import EXECUTORS
 
 # 动词表：新增工具必须以此表之一开头
-VERBS = ("list", "get", "create", "update", "delete", "promote", "convert", "mark")
+# add 与 create 同为"新增"语义：往已有联系人上挂一条日期用 add_important_date
+# （主语是联系人的日期集合），凭空建实体用 create_*。
+VERBS = ("list", "get", "create", "add", "update", "delete", "promote", "convert", "mark")
 
 # 历史命名不遵循动词表，冻结在此；新增工具不得再进这个集合。
 LEGACY_NAMES = {"kinship_of", "semantic_search"}
