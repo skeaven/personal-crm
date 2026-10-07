@@ -101,6 +101,18 @@ update/delete 必须显示现状与差异。
 delete 存实体摘要），与 `payload` 分离——执行器无感，`payload` 语义不变。
 备选（面板自己调 REST 读现状）被否：确认的那一刻读到的可能已不是提议时的状态。
 
+**preview 形状（三种，按 key 判别）**：
+
+| 形状 | 生产者 | 面板渲染 |
+|---|---|---|
+| `{"before": {...}}` | update 类 | 字段级「原值 → 新值」 |
+| `{"kind": "delete", "summary": "…"}` | `delete_contact`（软删→「将归档」）、`delete_important_date`（真删→「将删除」） | 动词前缀 + 摘要 |
+| `{"kind": "promote", "summary": "…"}` | `promote_contact` | 摘要原文，**不加**动词前缀 |
+
+`kind` 是必须的判别键：`summary` 有非删除用途（promote 也用它），
+面板若按「有没有 summary」判断就会把升级提议误标成「将删除」。
+未知 `kind` 一律按摘要原文渲染、不加前缀——将来新增 preview 语义不会被再次误标。
+
 ## 3. 补齐清单：REST 端点 → MCP 工具 1:1 映射（新增 44 个，删 1 个，合计 52）
 
 **总数口径**：既有 9 个工具 − 删除 `search_contacts`（§3.5）+ 新增 44 个 = **52 个**，

@@ -230,18 +230,26 @@ def _format_todo(item: Any) -> str:
 
 
 async def _run_list_contacts(db: AsyncSession, user, args: ListContactsArgs) -> str:
-    """名册列表：每条给 id + 展示名 + 可区分字段，供模型复述候选给用户确认。"""
+    """名册列表：每条给 id + 展示名 + 可区分字段，供模型复述候选给用户确认。
+
+    超过 50 条截断并显式告知（而非静默）——静默截断会让模型以为名册只有 50 人，
+    据此回答「某人在名册里吗」就会答错。
+    """
     contacts = await contacts_service.list_contacts(
         db, user, tier=args.tier, search=args.search, activity=args.activity
     )
     if not contacts:
         return "没有符合条件的联系人"
+    shown = contacts[:50]
     lines = [
         f"- {c.display_name}（id={c.id}，{'边缘' if c.tier == 'edge' else '直接'}联系人"
         f"{'，单位：' + c.organization if c.organization else ''}，{c.owner_display_name} 记录）"
-        for c in contacts
+        for c in shown
     ]
-    return f"共 {len(contacts)} 位：\n" + "\n".join(lines)
+    text = f"共 {len(contacts)} 位：\n" + "\n".join(lines)
+    if len(contacts) > len(shown):
+        text += f"\n（共 {len(contacts)} 位，已列出前 {len(shown)} 位，可用 search/tier 缩小范围）"
+    return text
 
 
 async def _run_get_contact(db: AsyncSession, user, args: GetContactArgs) -> str:
@@ -254,6 +262,9 @@ async def _run_get_contact(db: AsyncSession, user, args: GetContactArgs) -> str:
     fields = [
         ("姓名", detail.name),
         ("昵称", detail.nickname),
+        ("性别", {"male": "男", "female": "女", "other": "其他", "unknown": "未知"}.get(
+            detail.gender, detail.gender
+        )),
         ("单位", detail.organization),
         ("电话", detail.phone),
         ("微信", detail.wechat),
@@ -441,7 +452,7 @@ async def _run_queue_update_contact(db: AsyncSession, user, args: UpdateContactA
 
 
 async def _run_queue_delete_contact(db: AsyncSession, user, args: ContactIdArgs) -> str:
-    """归档联系人提议入队：preview 带实体摘要，面板显示"将删除：谁"。"""
+    """归档联系人提议入队：preview 带 kind + 实体摘要，面板显示"将归档：谁"。"""
     from app.modules.ai import pending as pending_service
 
     detail = await contacts_service.get_contact(db, user, args.contact_id)
@@ -450,7 +461,7 @@ async def _run_queue_delete_contact(db: AsyncSession, user, args: ContactIdArgs)
         user,
         "delete_contact",
         {"contact_id": args.contact_id},
-        preview={"summary": f"{detail.display_name}（id={detail.id}）"},
+        preview={"kind": "delete", "summary": f"{detail.display_name}（id={detail.id}）"},
     )
     return (
         f"已生成归档联系人提议（编号 {action.id}，待确认）：{detail.display_name}"
@@ -463,12 +474,13 @@ async def _run_queue_promote_contact(db: AsyncSession, user, args: ContactIdArgs
     from app.modules.ai import pending as pending_service
 
     detail = await contacts_service.get_contact(db, user, args.contact_id)
+    summary = f"{detail.display_name}（id={detail.id}）升级为直接联系人"
     action = await pending_service.propose(
         db,
         user,
         "promote_contact",
         {"contact_id": args.contact_id},
-        preview={"summary": f"{detail.display_name}（id={detail.id}）升级为直接联系人"},
+        preview={"kind": "promote", "summary": summary},
     )
     return (
         f"已生成升级联系人提议（编号 {action.id}，待确认）：{detail.display_name}"
@@ -558,7 +570,7 @@ async def _run_queue_delete_important_date(db: AsyncSession, user, args: DateIdA
         user,
         "delete_important_date",
         {"contact_id": args.contact_id, "date_id": args.date_id},
-        preview={"summary": f"{detail.display_name} 的 {current.type} {when}"},
+        preview={"kind": "delete", "summary": f"{detail.display_name} 的 {current.type} {when}"},
     )
     return f"已生成删除重要日期提议（编号 {action.id}，待确认）。需要用户在界面确认后才会执行。"
 

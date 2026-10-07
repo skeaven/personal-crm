@@ -61,7 +61,12 @@ def _dynamic_handler(ai_tool):
         factory = get_session_factory()
         async with factory() as session:
             tool_args = build_args(ai_tool, kwargs)
-            return await ai_tool.run(session, user, tool_args)
+            result = await ai_tool.run(session, user, tool_args)
+            # 服务层只 flush 不 commit（事务边界归调用方，见 core/db.py::get_db）。
+            # REST 路径由 get_db 在 yield 后提交，MCP 路径没有那一层，必须在这里提交——
+            # 否则会话退出即回滚，写工具回执说的"已生成提议（编号 N）"在库里根本不存在。
+            await session.commit()
+            return result
 
     handler.__signature__ = inspect.Signature([*required, *optional])
     handler.__doc__ = ai_tool.description

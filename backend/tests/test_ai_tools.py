@@ -13,6 +13,7 @@ from app.core.errors import (  # noqa: F401  ValidationError：Task 9 的非法�
 from app.modules.ai import pending as pending_service
 from app.modules.ai import registry
 from app.modules.ai.registry import build_args, get_tool
+from app.modules.contacts.models import Contact
 from tests.factories import (
     create_activity_for,
     create_contact_for,
@@ -67,6 +68,34 @@ async def test_list_contacts_returns_ids_and_distinguishing_fields(db_session, m
     assert "极星科技" in text and "另一家" in text
 
 
+async def test_list_contacts_truncates_to_fifty_with_notice(db_session, make_user):
+    """名册超过 50 条时截断并明确告知：静默截断会让模型以为名册只有 50 人，
+    据此回答「张三在名册里吗」就会答错。"""
+    demo, _ = await make_user(username="demo")
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add_all([
+            Contact(owner_user_id=demo.id, family_id=demo.family_id, name=f"联系人{i:03d}")
+            for i in range(51)
+        ])
+        await session.commit()
+
+    text = await _run_tool(db_session, demo, "list_contacts")
+
+    assert text.count("id=") == 50  # 只列前 50 条
+    assert "已列出前 50 位" in text  # 截断了就要说，不能静默
+
+
+async def test_list_contacts_no_notice_when_not_truncated(db_session, make_user):
+    """没截断就不要印提示：多余的一句噪声每轮都进上下文。"""
+    demo, _ = await make_user(username="demo")
+    await create_contact_for(demo, name="唐琴")
+
+    text = await _run_tool(db_session, demo, "list_contacts")
+
+    assert "已列出前" not in text
+
+
 async def test_get_contact_returns_full_fields_and_dates(db_session, make_user):
     """get_contact 是改之前的回读入口：字段与重要日期一次给全。"""
     demo, _ = await make_user(username="demo")
@@ -101,6 +130,17 @@ async def test_get_contact_renders_reminder_lead_only_when_present(db_session, m
     # 有提前量的那条照常渲染（否则修法可能把提醒整体改没，而空括号那半仍绿）
     assert "（提前 7、1 天提醒）" in text
     assert text.count("提前") == 1
+
+
+async def test_get_contact_includes_gender(db_session, make_user):
+    """性别必须在回读输出里：UpdateContactArgs 能改 gender，
+    但"改之前先回读"这条纪律对看不见的字段无从满足——等于能改一个自己看不到的字段。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴", gender="female")
+
+    text = await _run_tool(db_session, demo, "get_contact", contact_id=contact.id)
+
+    assert "性别：女" in text
 
 
 async def test_get_contact_of_unreadable_contact_reports_not_found(db_session, make_user):
@@ -341,14 +381,31 @@ async def test_update_contact_of_unreadable_contact_is_rejected(db_session, make
 
 
 async def test_delete_contact_proposal_carries_summary(db_session, make_user):
-    """归档提议的 preview 带实体摘要，确认面板才能显示"将删除：谁"。"""
+    """归档提议的 preview 带实体摘要 + kind 判别键，确认面板才能显示"将归档：谁"。
+
+    kind 是必须的：summary 有非删除用途（promote 也用 summary），
+    面板只按"有没有 summary"判断就会把升级提议误标成删除。
+    """
     demo, _ = await make_user(username="demo")
     contact = await create_contact_for(demo, name="唐琴")
 
     await _run_tool(db_session, demo, "delete_contact", contact_id=contact.id)
 
     action = (await pending_service.list_pending(db_session, demo))[0]
-    assert action.preview == {"summary": f"唐琴（id={contact.id}）"}
+    assert action.preview == {"kind": "delete", "summary": f"唐琴（id={contact.id}）"}
+
+
+async def test_promote_contact_proposal_preview_marks_kind(db_session, make_user):
+    """升级提议的 preview 必须带 kind="promote"：复用 summary 但不带判别键时，
+    确认面板会把它渲染成「将删除：…」，用户可能因此拒掉一条正当提议。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="王芳", tier="edge")
+
+    await _run_tool(db_session, demo, "promote_contact", contact_id=contact.id)
+
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.preview["kind"] == "promote"
+    assert "升级为直接联系人" in action.preview["summary"]
 
 
 async def test_add_lunar_important_date_proposal(db_session, make_user):
