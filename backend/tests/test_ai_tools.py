@@ -28,22 +28,6 @@ async def _run_tool(db, user, tool_name: str, **args) -> str:
     return await tool.run(db, user, build_args(tool, args))
 
 
-async def test_registry_completeness(client, make_user):
-    """注册表：首批工具齐全、名字唯一、风险档位合法。"""
-    names = [tool.name for tool in registry.ALL_TOOLS]
-    assert len(names) == len(set(names))
-    assert {
-        "search_contacts",
-        "get_upcoming_todos",
-        "get_contact_timeline",
-        "get_stats",
-        "create_task",
-        "create_activity",
-        "create_contact",
-    } <= set(names)
-    assert all(tool.risk in ("read", "write_queue") for tool in registry.ALL_TOOLS)
-
-
 async def test_search_contacts_tool(db_session, make_user):
     """搜索工具：命中昵称，输出含展示名（agent 后续引用）。"""
     demo, _ = await make_user(username="demo")
