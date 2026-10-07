@@ -20,7 +20,7 @@ async def test_approve_executes_create_task(db_session, make_user):
 
     action = await pending_service.propose(
         db_session, demo, "create_task",
-        {"title": "给老爸打电话", "contact_name": "老爸", "due_at": "2026-09-25"},
+        {"title": "给老爸打电话", "contact_id": father.id, "due_at": "2026-09-25"},
     )
     approved = await pending_service.approve(db_session, demo, action.id)
 
@@ -40,16 +40,16 @@ async def test_approve_executes_create_task(db_session, make_user):
 
 
 async def test_approve_with_unknown_contact_records_failure(db_session, make_user):
-    """确认时联系人解析失败：不抛异常，结果记 ok=False 与原因。"""
+    """确认时联系人不可见/不存在：不抛异常，结果记 ok=False 与原因。"""
     demo, _ = await make_user(username="demo")
     action = await pending_service.propose(
         db_session, demo, "create_task",
-        {"title": "找不存在的人", "contact_name": "查无此人"},
+        {"title": "找不存在的人", "contact_id": 999999},
     )
     approved = await pending_service.approve(db_session, demo, action.id)
     assert approved.status == "executed"
     assert approved.result["ok"] is False
-    assert "查无此人" in approved.result["error"]
+    assert approved.result["error"]
 
     from sqlalchemy import func, select
 

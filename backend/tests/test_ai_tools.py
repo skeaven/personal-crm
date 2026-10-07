@@ -131,28 +131,28 @@ async def test_get_upcoming_todos_tool(db_session, make_user):
 
 
 async def test_contact_timeline_tool(db_session, make_user):
-    """时间线工具：按名字查联系人并返回往来记录；无命中给出可读提示。"""
+    """时间线工具：按 id 查联系人并返回往来记录；id 不存在给出可读提示。"""
     demo, _ = await make_user(username="demo")
     father = await create_contact_for(demo, name="陈建国", nickname="老爸")
     await create_gift_for(
         demo, contact_id=father.id, direction="given", title="按摩仪", given_at=date(2026, 9, 1)
     )
 
-    out = await _run_tool(db_session, demo, "get_contact_timeline", contact_name="老爸")
+    out = await _run_tool(db_session, demo, "get_contact_timeline", contact_id=father.id)
     assert "按摩仪" in out
 
-    miss = await _run_tool(db_session, demo, "get_contact_timeline", contact_name="不存在的人")
+    miss = await _run_tool(db_session, demo, "get_contact_timeline", contact_id=999999)
     assert "没有找到" in miss
 
 
 async def test_write_tools_go_to_queue(db_session, make_user):
     """写入工具不直接落库：进 pending 队列，返回待确认提示。"""
     demo, _ = await make_user(username="demo")
-    await create_contact_for(demo, name="陈建国", nickname="老爸")
+    father = await create_contact_for(demo, name="陈建国", nickname="老爸")
 
     out = await _run_tool(
         db_session, demo, "create_task",
-        title="给老爸打电话", contact_name="老爸", due_date="2026-09-25",
+        title="给老爸打电话", contact_id=father.id, due_date="2026-09-25",
     )
     assert "待确认" in out
 
@@ -173,7 +173,7 @@ async def test_write_tools_go_to_queue(db_session, make_user):
     out2 = await _run_tool(
         db_session, demo, "create_activity",
         title="家庭聚餐", occurred_date="2026-09-28",
-        participant_names=["老爸"],
+        participant_ids=[father.id],
     )
     assert "待确认" in out2
 
@@ -186,7 +186,7 @@ async def test_activity_participants_in_timeline(db_session, make_user):
         demo, title="旧聚餐", occurred_at=datetime.now(UTC),
         participant_contact_ids=[father.id],
     )
-    out = await _run_tool(db_session, demo, "get_contact_timeline", contact_name="老爸")
+    out = await _run_tool(db_session, demo, "get_contact_timeline", contact_id=father.id)
     assert "旧聚餐" in out
 
 
@@ -435,3 +435,32 @@ async def test_update_important_date_preview_carries_only_changed_originals(
         "date_solar": "1991-04-06",
     }
     assert action.preview == {"before": {"date_solar": "1990-03-05"}}
+
+
+async def test_create_task_links_contact_by_id(db_session, make_user):
+    """建待办用 contact_id 关联：id 无歧义，同名联系人不会挂错。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    await _run_tool(db_session, demo, "create_task", title="打电话", contact_id=contact.id)
+
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.payload["contact_id"] == contact.id
+
+
+async def test_create_task_rejects_old_contact_name_field(db_session, make_user):
+    """旧字段 contact_name 必须以报错的方式暴露，不能静默建出一条没关联人的待办。"""
+    demo, _ = await make_user(username="demo")
+
+    with pytest.raises(PydanticValidationError):
+        await _run_tool(db_session, demo, "create_task", title="打电话", contact_name="唐琴")
+
+
+async def test_contact_timeline_by_id(db_session, make_user):
+    """时间线按 id 查：不再有"按名字取第一个"的静默歧义。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    text = await _run_tool(db_session, demo, "get_contact_timeline", contact_id=contact.id)
+
+    assert "唐琴" in text

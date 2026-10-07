@@ -114,7 +114,7 @@ async def test_pending_flow_http(client, make_user, login_headers):
     async with factory() as session:
         action = await pending_service.propose(
             session, demo, "create_task",
-            {"title": "给老爸打电话", "contact_name": "老爸", "due_at": "2026-09-30"},
+            {"title": "给老爸打电话", "contact_id": father.id, "due_at": "2026-09-30"},
         )
         await session.commit()
     action_id = action.id

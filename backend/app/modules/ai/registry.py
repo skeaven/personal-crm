@@ -23,6 +23,8 @@ from app.modules.records import service as records_service
 class ListContactsArgs(BaseModel):
     """名册列表入参：不传任何条件即全量（受调用者可读范围约束）。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     tier: Literal["direct", "edge"] | None = Field(default=None, description="层级过滤")
     search: str | None = Field(default=None, description="姓名/昵称关键字")
     activity: Literal["recent_30d", "stale_180d"] | None = Field(
@@ -33,23 +35,33 @@ class ListContactsArgs(BaseModel):
 class GetContactArgs(BaseModel):
     """读单人完整资料入参（含重要日期）。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     contact_id: int
 
 
 class SemanticSearchArgs(BaseModel):
     """语义搜索入参（自然语言描述，不限关键字）。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(min_length=1, description="自然语言描述，如：谁爱钓鱼、婚礼随礼记录")
 
 
 class EmptyArgs(BaseModel):
-    """无参工具的占位 schema。"""
+    """无参工具的占位 schema（get_upcoming_todos 与 get_stats 共用）。
 
-    pass
+    forbid extra：无参工具被模型硬塞参数时必须当场报错，
+    否则模型会以为参数生效了，实际被静默丢弃。
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class KinshipArgs(BaseModel):
     """kinship_of 工具入参：目标联系人 id（list_contacts 可拿到）。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     contact_id: int
 
@@ -57,28 +69,40 @@ class KinshipArgs(BaseModel):
 class ContactTimelineArgs(BaseModel):
     """联系人时间线入参。"""
 
-    contact_name: str = Field(min_length=1, description="联系人姓名或昵称")
+    model_config = ConfigDict(extra="forbid")
+
+    contact_id: int
 
 
 class CreateTaskArgs(BaseModel):
     """建待办入参（写入确认队列）。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     title: str = Field(min_length=1, max_length=200)
-    contact_name: str | None = Field(default=None, description="关联联系人（可选）")
+    contact_id: int | None = Field(
+        default=None, description="关联联系人 id（先用 list_contacts 拿）"
+    )
     due_date: str | None = Field(default=None, description="截止日 YYYY-MM-DD（可选）")
 
 
 class CreateActivityArgs(BaseModel):
     """记活动入参（写入确认队列）。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     title: str = Field(min_length=1, max_length=200)
     occurred_date: str = Field(description="活动日期 YYYY-MM-DD")
-    participant_names: list[str] = Field(default_factory=list, description="参与者姓名/昵称")
+    participant_ids: list[int] = Field(
+        default_factory=list, description="参与者联系人 id（先用 list_contacts 拿）"
+    )
     location: str | None = Field(default=None, max_length=200)
 
 
 class CreateContactArgs(BaseModel):
     """建联系人入参（写入确认队列）：名片/截图上读得到的字段，全部可选。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     tier: Literal["direct", "edge"] = Field(
         default="direct", description="direct=直接联系人（默认）；信息量少给 edge"
@@ -138,6 +162,8 @@ class UpdateContactArgs(BaseModel):
 
 class ContactIdArgs(BaseModel):
     """只需联系人 id 的写工具入参（归档 / 升级共用）。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     contact_id: int
 
@@ -281,33 +307,21 @@ async def _run_upcoming_todos(db: AsyncSession, user, args: EmptyArgs) -> str:
     return "临近事项：\n" + "\n".join(_format_todo(item) for item in board[:15])
 
 
-async def _resolve_contact_by_name(
-    db: AsyncSession, user, name: str
-) -> tuple[int, str] | None:
-    """按展示名/昵称解析联系人；多命中取第一个（LLM 会先经 list_contacts 消歧）。"""
-    contacts = await contacts_service.list_contacts(db, user, tier=None, search=name)
-    if not contacts:
-        return None
-    exact = [c for c in contacts if c.display_name == name]
-    chosen = exact[0] if exact else contacts[0]
-    return chosen.id, chosen.display_name
-
-
 async def _run_contact_timeline(db: AsyncSession, user, args: ContactTimelineArgs) -> str:
-    """按名字查联系人的最近往来（时间线聚合前 10 条）。"""
-    resolved = await _resolve_contact_by_name(db, user, args.contact_name)
-    if resolved is None:
-        return f"没有找到「{args.contact_name}」"
-    contact_id, display_name = resolved
-    timeline = await dashboard_service.build_contact_timeline(db, user, contact_id)
+    """按 id 查联系人的最近往来（时间线聚合前 10 条）。"""
+    try:
+        detail = await contacts_service.get_contact(db, user, args.contact_id)
+    except NotFoundError:
+        return f"没有找到 id={args.contact_id} 的联系人"
+    timeline = await dashboard_service.build_contact_timeline(db, user, args.contact_id)
     if not timeline.items:
-        return f"{display_name} 暂无往来记录"
+        return f"{detail.display_name} 暂无往来记录"
     lines = []
     for item in timeline.items[:10]:
         day = item.occurred_at.date().isoformat()
         amount = f"，{item.amount} 元" if item.amount else ""
         lines.append(f"- {day} [{item.source}] {item.title}{amount}")
-    return f"{display_name} 的最近往来：\n" + "\n".join(lines)
+    return f"{detail.display_name} 的最近往来：\n" + "\n".join(lines)
 
 
 async def _run_semantic_search(db: AsyncSession, user, args: SemanticSearchArgs) -> str:
@@ -376,8 +390,8 @@ async def _run_queue_create_task(db: AsyncSession, user, args: CreateTaskArgs) -
     from app.modules.ai import pending as pending_service
 
     payload: dict[str, Any] = {"title": args.title}
-    if args.contact_name:
-        payload["contact_name"] = args.contact_name
+    if args.contact_id is not None:
+        payload["contact_id"] = args.contact_id
     if args.due_date:
         payload["due_at"] = args.due_date
     action = await pending_service.propose(db, user, "create_task", payload)
@@ -388,13 +402,13 @@ async def _run_queue_create_task(db: AsyncSession, user, args: CreateTaskArgs) -
 
 
 async def _run_queue_create_activity(db: AsyncSession, user, args: CreateActivityArgs) -> str:
-    """记活动提议入队（含参与者名单，确认时解析为联系人）。"""
+    """记活动提议入队（参与者的可读性校验留到确认执行时，与 REST 同一路径）。"""
     from app.modules.ai import pending as pending_service
 
     payload: dict[str, Any] = {
         "title": args.title,
         "occurred_at": args.occurred_date,
-        "participant_names": args.participant_names,
+        "participant_ids": args.participant_ids,
     }
     if args.location:
         payload["location"] = args.location
@@ -607,7 +621,9 @@ ALL_TOOLS: list[AiTool] = [
     AiTool(
         name="get_contact_timeline",
         label="查往来",
-        description="按名字查某位联系人的最近往来（礼物/资金/活动时间线）",
+        description=(
+            "按 id 查某位联系人的最近往来（礼物/资金/活动时间线）；先用 list_contacts 拿 id"
+        ),
         risk="read",
         args_schema=ContactTimelineArgs,
         run=_run_contact_timeline,
@@ -633,7 +649,7 @@ ALL_TOOLS: list[AiTool] = [
     AiTool(
         name="create_task",
         label="建待办",
-        description="创建一条待办任务（需用户确认后生效）",
+        description="创建一条待办任务，可用 contact_id 关联联系人（需用户确认后生效）",
         risk="write_queue",
         args_schema=CreateTaskArgs,
         run=_run_queue_create_task,
@@ -641,7 +657,7 @@ ALL_TOOLS: list[AiTool] = [
     AiTool(
         name="create_activity",
         label="记活动",
-        description="记录一次社交活动，可附参与者名单（需用户确认后生效）",
+        description="记录一次社交活动，可用 participant_ids 挂参与者（需用户确认后生效）",
         risk="write_queue",
         args_schema=CreateActivityArgs,
         run=_run_queue_create_activity,
@@ -724,12 +740,6 @@ def get_tool(name: str) -> AiTool | None:
 def build_args(tool: AiTool, data: dict) -> Any:
     """用工具 schema 校验并构造入参（MCP/agent 调用入口共用）。"""
     return tool.args_schema(**data)
-
-
-async def resolve_contact_name(db: AsyncSession, user, name: str) -> int | None:
-    """执行器用的联系人名解析（找不到返回 None，由执行器决定失败语义）。"""
-    resolved = await _resolve_contact_by_name(db, user, name)
-    return resolved[0] if resolved else None
 
 
 def parse_iso_date(value: str, field_name: str) -> date:

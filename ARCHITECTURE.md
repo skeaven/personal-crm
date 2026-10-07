@@ -93,7 +93,7 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | /api/v1/dashboard | dashboard | ✅ `GET /dashboard/todos?bucket=`（待办四桶 × 五源聚合）；`GET /contacts/{id}/timeline`（联系人时间线四源全量倒序，路由挂 /contacts 前缀但实现在本聚合模块）；`GET /dashboard/stats`（主页统计卡：总数/近30天/半年未联系/待办数，口径与名册过滤联动） |
 | /api/v1/settings | settings | 运行时配置读写（页面 L4） |
 | /api/v1/reminders | reminders | ✅ 列表（未读/全部）、未读数、逐条/全部已读、手动扫描（D22） |
-| /api/v1/ai、/mcp | ai | ✅ SSE 对话（POST /ai/chat，请求带 `session_id`、缺失则服务端补；`images` ≤1 张本人临时图，服务端转 data URI 以多模态消息直通 agent）、会话列表 `GET /ai/sessions`、删除 `DELETE /ai/sessions/{id}`、历史 `GET /ai/sessions/{id}/messages`、写入提议确认（/ai/pending/*，含 create_contact）、工具清单（/ai/tools）、`/mcp` Streamable HTTP（对外，JWT 或个人令牌门卫）；agent 封装在 backend/agent/（deepagents 唯一 import 点）；`POST /ai/embeddings/rebuild`、`GET /ai/search?q=`（语义检索） |
+| /api/v1/ai、/mcp | ai | ✅ SSE 对话（POST /ai/chat，请求带 `session_id`、缺失则服务端补；`images` ≤1 张本人临时图，服务端转 data URI 以多模态消息直通 agent）、会话列表 `GET /ai/sessions`、删除 `DELETE /ai/sessions/{id}`、历史 `GET /ai/sessions/{id}/messages`、工具面按 D24 补齐（读直执行 / 写全进确认队列；D24 目标 52 个工具，逐工具清单以 TECH_DECISIONS D24 与 spec §3 为准、单一来源 `registry.ALL_TOOLS`，不在此处枚举）、写入提议确认（/ai/pending/*）、工具清单（/ai/tools）、`/mcp` Streamable HTTP（对外，JWT 或个人令牌门卫）；agent 封装在 backend/agent/（deepagents 唯一 import 点）；`POST /ai/embeddings/rebuild`、`GET /ai/search?q=`（语义检索） |
 
 ## 5. 前端映射与组件规范
 

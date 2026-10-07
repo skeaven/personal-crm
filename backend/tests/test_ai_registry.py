@@ -69,3 +69,18 @@ def test_every_args_schema_serializes_to_json_schema():
         assert "properties" in schema or schema.get("type") == "object", (
             f"{tool.name} 的 schema 不是对象类型"
         )
+
+
+def test_every_args_schema_forbids_extra_fields():
+    """所有入参 schema 必须 forbid extra。
+
+    寻址从名字改成 id 后，旧字段名（contact_name）若被静默忽略，
+    模型会得到"成功建了一条没关联联系人的待办"这种安静的错误数据。
+    forbid 让它当场报错，模型能立刻改。
+    """
+    offenders = [
+        tool.name
+        for tool in registry.ALL_TOOLS
+        if tool.args_schema.model_config.get("extra") != "forbid"
+    ]
+    assert offenders == [], f"以下工具的入参 schema 未 forbid extra：{offenders}"
