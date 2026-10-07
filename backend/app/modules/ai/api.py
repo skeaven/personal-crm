@@ -47,6 +47,7 @@ class ToolOut(BaseModel):
     """MCP 工具清单条目（对外暴露的能力声明）。"""
 
     name: str
+    label: str
     description: str
     risk: str
 
@@ -103,7 +104,7 @@ def _load_image_data_uris(user: User, images: list[str] | None) -> list[str]:
 async def list_tools(current_user: User = Depends(get_current_user)) -> list[ToolOut]:
     """工具清单（D11：内外共用同一份注册表）。"""
     return [
-        ToolOut(name=tool.name, description=tool.description, risk=tool.risk)
+        ToolOut(name=tool.name, label=tool.label, description=tool.description, risk=tool.risk)
         for tool in registry.ALL_TOOLS
     ]
 

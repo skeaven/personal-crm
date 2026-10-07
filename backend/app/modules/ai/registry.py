@@ -271,6 +271,7 @@ class AiTool:
     """MCP 工具三元组（D11）：schema + 风险档位 + 处理函数。"""
 
     name: str
+    label: str  # 中文名：确认面板渲染用，经 /ai/tools 下发（不进 MCP 协议形状）
     description: str
     risk: str
     args_schema: type[BaseModel]
@@ -280,6 +281,7 @@ class AiTool:
 ALL_TOOLS: list[AiTool] = [
     AiTool(
         name="search_contacts",
+        label="搜联系人",
         description="按姓名/昵称/单位关键字搜索联系人，返回 id 与展示名",
         risk="read",
         args_schema=SearchContactsArgs,
@@ -287,6 +289,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="kinship_of",
+        label="查称谓",
         description=(
             "查某位联系人是「我」的什么人（中文称谓+辈分）；先用 search_contacts 拿 id"
         ),
@@ -296,6 +299,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="get_upcoming_todos",
+        label="查临近事项",
         description="查看临近的事项：生日提醒、待办任务、还款、心愿、活动",
         risk="read",
         args_schema=EmptyArgs,
@@ -303,6 +307,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="get_contact_timeline",
+        label="查往来",
         description="按名字查某位联系人的最近往来（礼物/资金/活动时间线）",
         risk="read",
         args_schema=ContactTimelineArgs,
@@ -310,6 +315,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="semantic_search",
+        label="语义搜索",
         description="按含义搜索所有记录（联系人/活动/礼物/资金/备注），"
                     "适合模糊描述如「谁爱钓鱼」「孩子升学」；精确关键字搜索用 search_contacts",
         risk="read",
@@ -318,6 +324,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="get_stats",
+        label="查统计",
         description="查看名册统计与名单：总数、近 30 天联系过的人、"
                     "超过半年未联系的人（含姓名）、待办数",
         risk="read",
@@ -326,6 +333,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="create_task",
+        label="建待办",
         description="创建一条待办任务（需用户确认后生效）",
         risk="write_queue",
         args_schema=CreateTaskArgs,
@@ -333,6 +341,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="create_activity",
+        label="记活动",
         description="记录一次社交活动，可附参与者名单（需用户确认后生效）",
         risk="write_queue",
         args_schema=CreateActivityArgs,
@@ -340,6 +349,7 @@ ALL_TOOLS: list[AiTool] = [
     ),
     AiTool(
         name="create_contact",
+        label="建联系人",
         description=(
             "录入一个新联系人（口述或名片/截图识别均可，需用户确认后生效）；"
             "提议前先用 search_contacts 查同名"

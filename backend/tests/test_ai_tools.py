@@ -219,3 +219,22 @@ async def test_create_contact_rejects_unknown_tier(db_session, make_user):
 
     with pytest.raises(ValidationError):
         await _run_tool(db_session, demo, "create_contact", name="王", tier="vip")
+
+
+async def test_every_tool_has_label():
+    """每个工具都有中文名：确认面板靠它渲染，前端不再自己维护一份映射。"""
+    missing = [tool.name for tool in registry.ALL_TOOLS if not tool.label.strip()]
+    assert missing == [], f"以下工具缺 label：{missing}"
+
+
+async def test_tools_endpoint_exposes_label(client, login_headers, make_user):
+    """GET /ai/tools 下发 label——它是前端渲染确认面板的唯一来源。"""
+    _, password = await make_user(username="demo")
+    headers = await login_headers("demo", password)
+
+    response = await client.get("/api/v1/ai/tools", headers=headers)
+
+    assert response.status_code == 200
+    items = response.json()
+    assert items, "工具清单不应为空"
+    assert all(item["label"] for item in items), "每个工具都必须带 label"
