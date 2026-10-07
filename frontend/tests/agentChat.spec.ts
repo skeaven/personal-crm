@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 
-const { chat, pendingList, tools, uploadTemp } = vi.hoisted(() => ({
+const { chat, pendingList, tools, uploadTemp, approve, reject } = vi.hoisted(() => ({
   chat: vi.fn(),
   pendingList: vi.fn(),
   tools: vi.fn(),
   uploadTemp: vi.fn(),
+  approve: vi.fn(),
+  reject: vi.fn(),
 }))
-vi.mock('@/api/ai', () => ({ aiApi: { chat, pendingList, tools } }))
+vi.mock('@/api/ai', () => ({ aiApi: { chat, pendingList, tools, approve, reject } }))
 // 保留真实 ApiError（组件用 instanceof 判错），只替换 uploadTemp
 vi.mock('@/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/client')>()
@@ -28,7 +30,16 @@ beforeEach(() => {
   pendingList.mockReset().mockResolvedValue([])
   tools.mockReset().mockResolvedValue([])
   uploadTemp.mockReset().mockResolvedValue({ temp_path: 'tmp/9/card.png' })
+  approve.mockReset()
+  reject.mockReset()
 })
+
+/** 面板默认收起（showPending=false），先点「待确认」按钮展开再断言。 */
+async function openPending(wrapper: ReturnType<typeof mount>): Promise<void> {
+  const toggle = wrapper.findAll('button').find((b) => b.text().includes('待确认'))
+  await toggle?.trigger('click')
+  await flushPromises()
+}
 
 /** 模拟选择一张图片（jsdom 不能直接赋 files，用 defineProperty）。 */
 async function pickImage(wrapper: ReturnType<typeof mount>): Promise<void> {
@@ -109,14 +120,6 @@ describe('AgentChat 图片', () => {
 })
 
 describe('AgentChat 确认面板', () => {
-  /** 面板默认收起（showPending=false），先点「待确认」按钮展开再断言。 */
-  async function openPending(wrapper: ReturnType<typeof mount>): Promise<void> {
-    const toggle = wrapper.findAll('button').find((b) => b.text().includes('待确认'))
-    await toggle?.trigger('click')
-    await flushPromises()
-  }
-
-
   it('create_contact 提议用中文标签渲染（层级转译为直接/边缘）', async () => {
     // 工具中文名改由 /ai/tools 下发（前端不再硬编码），断言前须把标签喂给组件。
     tools.mockResolvedValue([
@@ -207,5 +210,71 @@ describe('AgentChat 确认面板', () => {
     await openPending(wrapper)
 
     expect(wrapper.get('.pending-item').text()).toContain('delete_contact')
+  })
+})
+
+describe('AgentChat 确认面板渲染与批量', () => {
+  const action = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: 1,
+    tool_name: 'update_contact',
+    payload: { contact_id: 39, phone: '139' },
+    preview: null,
+    status: 'pending',
+    result: null,
+    created_at: '2026-10-06T00:00:00Z',
+    ...over,
+  })
+
+  it('update 提议按 preview 显示字段级「原值 → 新值」', async () => {
+    pendingList.mockResolvedValue([
+      action({ preview: { before: { phone: '138' } } }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    // phone 经 CONTACT_FIELD_LABELS 映射为「电话」——面板是给人看的，不是给字段名看的
+    expect(wrapper.get('.pending-item').text()).toContain('电话: 138 → 139')
+  })
+
+  it('delete 提议显示将删除的对象', async () => {
+    pendingList.mockResolvedValue([
+      action({
+        tool_name: 'delete_contact',
+        payload: { contact_id: 39 },
+        preview: { summary: '唐琴（id=39）' },
+      }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('将删除：唐琴（id=39）')
+  })
+
+  it('勾选多条后批量确认：逐条 approve，逐条记结果，不整体回滚', async () => {
+    pendingList.mockResolvedValue([action({ id: 1 }), action({ id: 2 })])
+    approve
+      .mockResolvedValueOnce({ ...action({ id: 1 }), result: { ok: true, message: '已改' } })
+      .mockResolvedValueOnce({ ...action({ id: 2 }), result: { ok: false, error: '联系人不存在' } })
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    const boxes = wrapper.findAll('.pending-item input[type="checkbox"]')
+    await boxes[0].setValue(true)
+    await boxes[1].setValue(true)
+    await wrapper.get('[data-test="batch-approve"]').trigger('click')
+    await flushPromises()
+
+    expect(approve).toHaveBeenCalledTimes(2)
+    expect(approve).toHaveBeenNthCalledWith(1, 1)
+    expect(approve).toHaveBeenNthCalledWith(2, 2)
+    const text = wrapper.text()
+    expect(text).toContain('已改')
+    expect(text).toContain('联系人不存在')
   })
 })

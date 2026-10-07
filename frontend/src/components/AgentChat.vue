@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** Agent 对话组件：SSE 流式渲染 + 工具调用状态 + 写入提议确认。
  * 由页面持有 sessionId（切换会话即载入历史），不自己管理会话标识。 */
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '@/api/client'
 import { aiApi, type ChatStreamEvent } from '@/api/ai'
@@ -30,6 +30,10 @@ const streaming = ref(false)
 const activeTool = ref<string | null>(null)
 const pendingActions = ref<PendingActionOut[]>([])
 const showPending = ref(false)
+/** 已勾选待处理的提议 id（数组由组件自己维护，不依赖 checkbox 的 group 语义）。 */
+const selectedIds = ref<number[]>([])
+/** 批量执行中：期间禁用批量按钮，避免重复触发。 */
+const batchRunning = ref(false)
 const listHost = ref<HTMLDivElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploadingImage = ref(false)
@@ -158,17 +162,22 @@ async function refreshPending(): Promise<void> {
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) pendingActions.value = []
   }
+  // 列表已重取，旧勾选 id 可能已不存在，一并清空（单条确认后也会走到这里）。
+  selectedIds.value = []
+}
+
+/** 单条确认结果文案（单条与批量共用，避免两处措辞漂移）。 */
+function outcomeOf(result: PendingActionOut): string {
+  return result.result?.ok
+    ? `✅ ${result.result.message}`
+    : `⚠ 执行失败：${result.result?.error ?? '未知原因'}`
 }
 
 /** 确认提议：执行结果以消息形式回灌对话流。 */
 async function decide(action: PendingActionOut, approve: boolean): Promise<void> {
   try {
     const result = approve ? await aiApi.approve(action.id) : await aiApi.reject(action.id)
-    const outcome = approve
-      ? result.result?.ok
-        ? `✅ ${result.result.message}`
-        : `⚠ 执行失败：${result.result?.error ?? '未知原因'}`
-      : '已拒绝该提议'
+    const outcome = approve ? outcomeOf(result) : '已拒绝该提议'
     messages.value.push({ role: 'assistant', content: outcome, tools: [] })
     await refreshPending()
     await scrollToBottom()
@@ -223,6 +232,75 @@ function payloadText(action: PendingActionOut): string {
   return parts.join(' · ')
 }
 
+/** 字段中文名：联系人字段有专表，其余实体回退原名（阶段 3+ 再逐模块补）。 */
+function fieldLabel(key: string): string {
+  return CONTACT_FIELD_LABELS[key] ?? key
+}
+
+/** 值的统一展示：数组顿号连接，空值显示破折号。 */
+function shownValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join('、')
+  return value === null || value === undefined || value === '' ? '—' : String(value)
+}
+
+/** 提议正文：update 显示字段级「原值 → 新值」，delete 显示将删除的对象，
+ *  create 类按 payload 直读。确认的前提是看懂在确认什么。 */
+function previewText(action: PendingActionOut): string {
+  const before = action.preview?.before as Record<string, unknown> | undefined
+  if (before) {
+    return Object.entries(before)
+      .map(([key, oldValue]) => `${fieldLabel(key)}: ${shownValue(oldValue)} → ${shownValue(action.payload[key])}`)
+      .join(' · ')
+  }
+  if (action.preview?.summary) return `将删除：${String(action.preview.summary)}`
+  return payloadText(action)
+}
+
+/** 当前面板里的提议是否全被勾选（决定「全选」勾选框状态）。 */
+const allSelected = computed(
+  () => pendingActions.value.length > 0 && selectedIds.value.length === pendingActions.value.length,
+)
+
+/** 勾选/取消单条提议。 */
+function toggleSelect(id: number, checked: boolean): void {
+  selectedIds.value = checked
+    ? [...selectedIds.value, id]
+    : selectedIds.value.filter((item) => item !== id)
+}
+
+/** 全选/取消全选当前面板里的提议。 */
+function toggleSelectAll(checked: boolean): void {
+  selectedIds.value = checked ? pendingActions.value.map((action) => action.id) : []
+}
+
+/** 批量确认/驳回：逐条调用既有端点，每条独立事务。
+ *
+ * 刻意不做整体回滚——各条提议之间没有依赖，已成功的那条不该因为
+ * 后面一条失败而被撤销；逐条把结果写回对话，用户能看到哪几条成了。
+ */
+async function decideMany(approve: boolean): Promise<void> {
+  const ids = [...selectedIds.value]
+  if (!ids.length || batchRunning.value) return
+  batchRunning.value = true
+  const outcomes: string[] = []
+  try {
+    for (const id of ids) {
+      try {
+        const result = approve ? await aiApi.approve(id) : await aiApi.reject(id)
+        outcomes.push(approve ? `#${id} ${outcomeOf(result)}` : `#${id} 已拒绝`)
+      } catch (error) {
+        outcomes.push(`#${id} ⚠ ${error instanceof ApiError ? error.message : '操作失败'}`)
+      }
+    }
+  } finally {
+    batchRunning.value = false
+    selectedIds.value = []
+  }
+  messages.value.push({ role: 'assistant', content: outcomes.join('\n'), tools: [] })
+  await refreshPending()
+  await scrollToBottom()
+}
+
 onMounted(() => {
   void loadToolLabels()
   void refreshPending()
@@ -251,13 +329,36 @@ onMounted(() => {
 
     <div v-if="showPending" class="pending-panel">
       <div class="pending-head">
-        <span>待确认的写入提议</span>
+        <span class="pending-head-title">待确认的写入提议</span>
+        <el-checkbox
+          v-if="pendingActions.length"
+          :model-value="allSelected"
+          :indeterminate="selectedIds.length > 0 && !allSelected"
+          @change="toggleSelectAll"
+        >全选</el-checkbox>
+        <el-button
+          type="primary" size="small"
+          data-test="batch-approve"
+          :loading="batchRunning"
+          :disabled="!selectedIds.length"
+          @click="decideMany(true)"
+        >确认选中</el-button>
+        <el-button
+          text size="small"
+          data-test="batch-reject"
+          :disabled="!selectedIds.length"
+          @click="decideMany(false)"
+        >驳回选中</el-button>
         <el-button text @click="showPending = false">收起</el-button>
       </div>
       <div v-for="action in pendingActions" :key="action.id" class="pending-item">
         <div class="pending-title">
+          <el-checkbox
+            :model-value="selectedIds.includes(action.id)"
+            @change="(checked: boolean) => toggleSelect(action.id, checked)"
+          />
           <el-tag size="small" type="warning">{{ labelOf(action.tool_name) }}</el-tag>
-          <span>{{ payloadText(action) }}</span>
+          <span class="pending-body">{{ previewText(action) }}</span>
         </div>
         <div class="pending-actions">
           <el-button type="primary" @click="decide(action, true)">确认执行</el-button>
@@ -402,11 +503,15 @@ onMounted(() => {
 }
 .pending-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
   font-size: 13px;
   color: var(--crm-muted);
   margin-bottom: 8px;
+}
+/* 标题占据剩余空间，把勾选框与批量按钮推到右侧。 */
+.pending-head-title {
+  flex: 1;
 }
 .pending-item {
   background: var(--crm-canvas);
@@ -420,6 +525,9 @@ onMounted(() => {
   gap: 8px;
   align-items: center;
   font-size: 13px;
+}
+.pending-body {
+  word-break: break-word;
 }
 .pending-actions {
   display: flex;
