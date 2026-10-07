@@ -24,7 +24,7 @@ class ListContactsArgs(BaseModel):
     """名册列表入参：不传任何条件即全量（受调用者可读范围约束）。"""
 
     tier: Literal["direct", "edge"] | None = Field(default=None, description="层级过滤")
-    search: str | None = Field(default=None, description="姓名/昵称/单位关键字")
+    search: str | None = Field(default=None, description="姓名/昵称关键字")
     activity: Literal["recent_30d", "stale_180d"] | None = Field(
         default=None, description="recent_30d=近 30 天联系过；stale_180d=超半年未联系"
     )
@@ -159,7 +159,9 @@ async def _run_get_contact(db: AsyncSession, user, args: GetContactArgs) -> str:
                 else f"农历 {item.lunar_month} 月 {item.lunar_day} 日"
             )
             lead = "、".join(str(day) for day in item.reminder_lead_days)
-            lines.append(f"  - id={item.id} {item.type} {when}（提前 {lead} 天提醒）")
+            # 没有提前量时整段括号不出现：空串会渲染成「提前  天提醒」，模型读来是无意义噪声
+            suffix = f"（提前 {lead} 天提醒）" if lead else ""
+            lines.append(f"  - id={item.id} {item.type} {when}{suffix}")
     return f"联系人 id={detail.id} 的资料：\n" + "\n".join(lines)
 
 

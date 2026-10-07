@@ -76,6 +76,27 @@ async def test_get_contact_returns_full_fields_and_dates(db_session, make_user):
     assert "农历" in text
 
 
+async def test_get_contact_renders_reminder_lead_only_when_present(db_session, make_user):
+    """提前量括号有则渲染、无则整段消失：空列表会 join 出空串，印成无意义的「提前  天提醒」。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    await create_date_for(
+        demo, contact.id, type="birthday", calendar="solar",
+        date_solar="1990-03-05", reminder_lead_days=[],
+    )
+    await create_date_for(
+        demo, contact.id, type="anniversary", calendar="solar",
+        date_solar="2015-06-01", reminder_lead_days=[7, 1],
+    )
+
+    text = await _run_tool(db_session, demo, "get_contact", contact_id=contact.id)
+
+    assert "1990-03-05" in text
+    # 有提前量的那条照常渲染（否则修法可能把提醒整体改没，而空括号那半仍绿）
+    assert "（提前 7、1 天提醒）" in text
+    assert text.count("提前") == 1
+
+
 async def test_get_contact_of_unreadable_contact_reports_not_found(db_session, make_user):
     """别人的私密联系人不可读：报"没有找到"，不泄露它是否存在。"""
     owner, _ = await make_user(username="owner")
