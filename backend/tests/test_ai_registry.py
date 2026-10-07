@@ -7,12 +7,8 @@
 - 名字不合约定会让模型在 52 个工具里选错。
 """
 
-import pytest
-
 from app.modules.ai import registry
 from app.modules.ai.pending import EXECUTORS
-
-pytestmark = pytest.mark.asyncio
 
 # 动词表：新增工具必须以此表之一开头
 VERBS = ("list", "get", "create", "update", "delete", "promote", "convert", "mark")
