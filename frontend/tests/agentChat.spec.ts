@@ -238,12 +238,12 @@ describe('AgentChat 确认面板渲染与批量', () => {
     expect(wrapper.get('.pending-item').text()).toContain('电话: 138 → 139')
   })
 
-  it('delete 提议显示将删除的对象', async () => {
+  it('归档提议（delete_contact）显示「将归档」——软删可恢复，文案须与工具名一致', async () => {
     pendingList.mockResolvedValue([
       action({
         tool_name: 'delete_contact',
         payload: { contact_id: 39 },
-        preview: { summary: '唐琴（id=39）' },
+        preview: { kind: 'delete', summary: '唐琴（id=39）' },
       }),
     ])
 
@@ -251,7 +251,75 @@ describe('AgentChat 确认面板渲染与批量', () => {
     await flushPromises()
     await openPending(wrapper)
 
-    expect(wrapper.get('.pending-item').text()).toContain('将删除：唐琴（id=39）')
+    expect(wrapper.get('.pending-item').text()).toContain('将归档：唐琴（id=39）')
+  })
+
+  it('删重要日期提议显示「将删除」——它是真删，与归档不同', async () => {
+    pendingList.mockResolvedValue([
+      action({
+        tool_name: 'delete_important_date',
+        payload: { contact_id: 39, date_id: 7 },
+        preview: { kind: 'delete', summary: '唐琴 的 birthday 1990-03-05' },
+      }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('将删除：唐琴 的 birthday 1990-03-05')
+  })
+
+  it('promote 提议不带「将删除」前缀：面板按 kind 判别，不按有没有 summary', async () => {
+    pendingList.mockResolvedValue([
+      action({
+        tool_name: 'promote_contact',
+        payload: { contact_id: 34 },
+        preview: { kind: 'promote', summary: '王芳（id=34）升级为直接联系人' },
+      }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    const text = wrapper.get('.pending-item').text()
+    expect(text).not.toContain('将删除')
+    expect(text).toContain('升级为直接联系人')
+  })
+
+  it('未知 kind 不加前缀：将来新增 preview 语义不会被误标成删除', async () => {
+    pendingList.mockResolvedValue([
+      action({
+        tool_name: 'some_future_tool',
+        payload: { id: 1 },
+        preview: { kind: 'merge', summary: '合并两条记录' },
+      }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    const text = wrapper.get('.pending-item').text()
+    expect(text).not.toContain('将删除')
+    expect(text).toContain('合并两条记录')
+  })
+
+  it('重要日期字段用中文名渲染，不暴露英文键', async () => {
+    pendingList.mockResolvedValue([
+      action({
+        tool_name: 'update_important_date',
+        payload: { contact_id: 39, date_id: 7, date_solar: '1991-04-06' },
+        preview: { before: { date_solar: '1990-03-05' } },
+      }),
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('公历日期: 1990-03-05 → 1991-04-06')
   })
 
   it('勾选多条后批量确认：逐条 approve，逐条记结果，不整体回滚', async () => {
@@ -276,5 +344,33 @@ describe('AgentChat 确认面板渲染与批量', () => {
     const text = wrapper.text()
     expect(text).toContain('已改')
     expect(text).toContain('联系人不存在')
+  })
+
+  it('批量执行期间单条确认/拒绝按钮禁用：避免同一条被重复提交两次', async () => {
+    // approve 悬而不决，把组件钉在"批量进行中"的状态上再断言按钮态
+    let release: () => void = () => {}
+    approve.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ...action({ id: 1 }), result: { ok: true, message: '已改' } })
+        }),
+    )
+    pendingList.mockResolvedValue([action({ id: 1 })])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    const box = wrapper.find('.pending-item input[type="checkbox"]')
+    await box.setValue(true)
+    await wrapper.get('[data-test="batch-approve"]').trigger('click')
+    await flushPromises()
+
+    const itemButtons = wrapper.get('.pending-item').findAll('button')
+    expect(itemButtons.length).toBeGreaterThan(0)
+    expect(itemButtons.every((b) => b.attributes('disabled') !== undefined)).toBe(true)
+
+    release() // 收尾，避免游离 Promise 影响后续用例
+    await flushPromises()
   })
 })

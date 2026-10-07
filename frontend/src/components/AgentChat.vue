@@ -208,6 +208,9 @@ const CONTACT_FIELD_LABELS: Record<string, string> = {
   tier: '层级', name: '姓名', nickname: '昵称',
   organization: '单位', phone: '电话', qq: 'QQ', wechat: '微信',
   email: '邮箱', school_name: '院校', location: '所在地', bio: '备注',
+  // 重要日期字段（update_important_date 的差异渲染），英文键不进面板
+  date_solar: '公历日期', lunar_month: '农历月', lunar_day: '农历日',
+  calendar: '历法', yearly: '每年重复', reminder_lead_days: '提前提醒天数',
 }
 const CONTACT_TIER_LABELS: Record<string, string> = { direct: '直接', edge: '边缘' }
 
@@ -243,8 +246,13 @@ function shownValue(value: unknown): string {
   return value === null || value === undefined || value === '' ? '—' : String(value)
 }
 
-/** 提议正文：update 显示字段级「原值 → 新值」，delete 显示将删除的对象，
- *  create 类按 payload 直读。确认的前提是看懂在确认什么。 */
+/** 提议正文：update 显示字段级「原值 → 新值」，delete 显示将删除/归档的对象，
+ *  create 类按 payload 直读。确认的前提是看懂在确认什么。
+ *
+ *  delete 类的动词按 kind 判别、且只有 kind === 'delete' 才加前缀：
+ *  summary 有非删除用途（promote 用它写"升级为直接联系人"），
+ *  按"有没有 summary"判断会把升级提议误标成「将删除」，用户可能因此拒掉正当提议。
+ *  未知 kind 一律不加前缀——将来新增 preview 语义不会被再次误标成删除。 */
 function previewText(action: PendingActionOut): string {
   const before = action.preview?.before as Record<string, unknown> | undefined
   if (before) {
@@ -252,7 +260,13 @@ function previewText(action: PendingActionOut): string {
       .map(([key, oldValue]) => `${fieldLabel(key)}: ${shownValue(oldValue)} → ${shownValue(action.payload[key])}`)
       .join(' · ')
   }
-  if (action.preview?.summary) return `将删除：${String(action.preview.summary)}`
+  const kind = action.preview?.kind
+  if (kind === 'delete') {
+    // delete_contact 是软删（工具 label 为「归档联系人」），文案与 label 保持一致
+    const prefix = action.tool_name === 'delete_contact' ? '将归档：' : '将删除：'
+    return `${prefix}${String(action.preview?.summary ?? '')}`
+  }
+  if (action.preview?.summary) return String(action.preview.summary) // 兜住库里已存在的旧行 + 未知 kind
   return payloadText(action)
 }
 
@@ -361,8 +375,8 @@ onMounted(() => {
           <span class="pending-body">{{ previewText(action) }}</span>
         </div>
         <div class="pending-actions">
-          <el-button type="primary" @click="decide(action, true)">确认执行</el-button>
-          <el-button text @click="decide(action, false)">拒绝</el-button>
+          <el-button type="primary" :disabled="batchRunning" @click="decide(action, true)">确认执行</el-button>
+          <el-button text :disabled="batchRunning" @click="decide(action, false)">拒绝</el-button>
         </div>
       </div>
       <p v-if="!pendingActions.length" class="pending-empty">没有待确认的提议</p>
