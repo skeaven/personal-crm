@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
 from app.modules.contacts import service as contacts_service
-from app.modules.contacts.schemas import ContactCreate
+from app.modules.contacts.schemas import ContactCreate, ContactUpdate
 
 # D23 之前的 create_contact payload 用姓/名两键；姓名已并为 name，旧键会被 pydantic
 # 静默忽略（extra 默认 ignore），放过去就会丢掉姓名建出一条无名联系人，故显式拦下。
@@ -39,3 +39,22 @@ async def create_contact(db: AsyncSession, user: User, payload: dict) -> dict:
         "ok": True,
         "message": f"联系人已创建（id={response.contact.id}）：{response.contact.display_name}",
     }
+
+
+async def update_contact(db: AsyncSession, user: User, payload: dict) -> dict:
+    """改联系人：走 contacts service 的 PATCH 语义（只改提交的字段）。"""
+    data = ContactUpdate(**{key: value for key, value in payload.items() if key != "contact_id"})
+    contact = await contacts_service.update_contact(db, user, payload["contact_id"], data)
+    return {"ok": True, "message": f"已更新 {contact.display_name}（id={contact.id}）"}
+
+
+async def delete_contact(db: AsyncSession, user: User, payload: dict) -> dict:
+    """归档联系人（软删，仅所有者）：与 HTTP 的 DELETE 端点同一个 service 函数。"""
+    await contacts_service.archive_contact(db, user, payload["contact_id"])
+    return {"ok": True, "message": "已归档该联系人"}
+
+
+async def promote_contact(db: AsyncSession, user: User, payload: dict) -> dict:
+    """边缘联系人升级为直接联系人：升级保留全部数据（与其他入口同一个函数）。"""
+    contact = await contacts_service.promote_contact(db, user, payload["contact_id"])
+    return {"ok": True, "message": f"{contact.display_name} 已升级为直接联系人"}

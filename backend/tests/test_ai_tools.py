@@ -3,8 +3,14 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.db import get_session_factory
+from app.core.errors import (  # noqa: F401  ValidationError：Task 9 的非法日期用例用
+    NotFoundError,
+    ValidationError,
+)
+from app.modules.ai import pending as pending_service
 from app.modules.ai import registry
 from app.modules.ai.registry import build_args, get_tool
 from tests.factories import (
@@ -262,12 +268,13 @@ async def test_create_contact_rejects_unknown_tier(db_session, make_user):
 
     否则它会一路进 propose，到用户点「确认执行」时在 ContactCreate 炸成 500——
     而 ValidationError 不是 BusinessError，approve 接不住，提议永远卡在 pending。
-    """
-    from pydantic import ValidationError
 
+    这里必须断言 pydantic 那个 ValidationError（别名 PydanticValidationError）：
+    与 app.core.errors.ValidationError 同名不同源，写成同一个就会以"异常类型不匹配"红。
+    """
     demo, _ = await make_user(username="demo")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(PydanticValidationError):
         await _run_tool(db_session, demo, "create_contact", name="王", tier="vip")
 
 
@@ -288,3 +295,57 @@ async def test_tools_endpoint_exposes_label(client, login_headers, make_user):
     items = response.json()
     assert items, "工具清单不应为空"
     assert all(item["label"] for item in items), "每个工具都必须带 label"
+
+
+async def test_update_contact_proposal_carries_before_snapshot(db_session, make_user):
+    """改联系人提议：payload 只带要改的字段，preview 带它们的原值供面板显示差异。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴", phone="138")
+
+    text = await _run_tool(db_session, demo, "update_contact", contact_id=contact.id, phone="139")
+
+    assert "已生成修改联系人提议" in text
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.payload == {"contact_id": contact.id, "phone": "139"}
+    assert action.preview == {"before": {"phone": "138"}}
+
+
+async def test_update_contact_rejects_unknown_field(db_session, make_user):
+    """payload 混入不该改的字段（属主/家庭）应被 schema 挡下，不能越权改属主。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    with pytest.raises(PydanticValidationError):
+        await _run_tool(
+            db_session, demo, "update_contact", contact_id=contact.id, owner_user_id=999
+        )
+
+
+async def test_update_contact_rejects_empty_change_set(db_session, make_user):
+    """空改动的"成功"是假的：模型会以为改好了，用户什么也没看到。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    with pytest.raises(PydanticValidationError):
+        await _run_tool(db_session, demo, "update_contact", contact_id=contact.id)
+
+
+async def test_update_contact_of_unreadable_contact_is_rejected(db_session, make_user):
+    """别人的私密联系人不可改：提议阶段就报错，不泄露它是否存在。"""
+    owner, _ = await make_user(username="owner")
+    other, _ = await make_user(username="other", family_id=owner.family_id)
+    secret = await create_contact_for(owner, name="私密人", visibility="private")
+
+    with pytest.raises(NotFoundError):
+        await _run_tool(db_session, other, "update_contact", contact_id=secret.id, phone="139")
+
+
+async def test_delete_contact_proposal_carries_summary(db_session, make_user):
+    """归档提议的 preview 带实体摘要，确认面板才能显示"将删除：谁"。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+
+    await _run_tool(db_session, demo, "delete_contact", contact_id=contact.id)
+
+    action = (await pending_service.list_pending(db_session, demo))[0]
+    assert action.preview == {"summary": f"唐琴（id={contact.id}）"}

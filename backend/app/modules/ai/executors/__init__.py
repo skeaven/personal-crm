@@ -5,11 +5,19 @@
 """
 
 from app.modules.ai.executors.activities import create_activity
-from app.modules.ai.executors.contacts import create_contact
+from app.modules.ai.executors.contacts import (
+    create_contact,
+    delete_contact,
+    promote_contact,
+    update_contact,
+)
 from app.modules.ai.executors.tasks import create_task
 
 EXECUTORS = {
     "create_task": create_task,
     "create_activity": create_activity,
     "create_contact": create_contact,
+    "update_contact": update_contact,
+    "delete_contact": delete_contact,
+    "promote_contact": promote_contact,
 }

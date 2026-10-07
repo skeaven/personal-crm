@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BusinessError, NotFoundError, ValidationError
@@ -100,6 +100,46 @@ class CreateContactArgs(BaseModel):
         if not any([self.name.strip(), (self.nickname or "").strip()]):
             raise ValueError("姓名、昵称至少填写一项")
         return self
+
+
+class UpdateContactArgs(BaseModel):
+    """改联系人入参（PATCH 语义：只提交要改的字段）。
+
+    刻意不含 id / owner_user_id / family_id / tier：
+    前三个决定权限归属，改它们等于越权；层级有专门的 promote_contact 工具，
+    两条路会让"谁把人升成直接联系人"失去单一入口。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    contact_id: int
+    name: str | None = Field(default=None, max_length=100)
+    nickname: str | None = Field(default=None, max_length=100)
+    gender: Literal["male", "female", "other", "unknown"] | None = None
+    organization: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    qq: str | None = Field(default=None, max_length=30)
+    wechat: str | None = Field(default=None, max_length=50)
+    email: str | None = Field(default=None, max_length=120)
+    school_name: str | None = Field(default=None, max_length=100)
+    current_address: str | None = Field(default=None, max_length=200)
+    family_address: str | None = Field(default=None, max_length=200)
+    hobbies: str | None = None
+    location: str | None = Field(default=None, max_length=200)
+    bio: str | None = None
+
+    @model_validator(mode="after")
+    def validate_at_least_one_change(self) -> "UpdateContactArgs":
+        """至少要改一个字段：空改动的"成功"是假的。"""
+        if not self.model_dump(exclude={"contact_id"}, exclude_none=True):
+            raise ValueError("至少要指定一个要修改的字段")
+        return self
+
+
+class ContactIdArgs(BaseModel):
+    """只需联系人 id 的写工具入参（归档 / 升级共用）。"""
+
+    contact_id: int
 
 
 # ---------- 查询类工具（read，直执行） ----------
@@ -313,6 +353,63 @@ async def _run_queue_create_activity(db: AsyncSession, user, args: CreateActivit
     )
 
 
+async def _run_queue_update_contact(db: AsyncSession, user, args: UpdateContactArgs) -> str:
+    """改联系人提议入队：回读现状拿原值，preview 供面板显示字段级差异。"""
+    from app.modules.ai import pending as pending_service
+
+    detail = await contacts_service.get_contact(db, user, args.contact_id)
+    changes = args.model_dump(exclude={"contact_id"}, exclude_none=True)
+    before = {key: getattr(detail, key, None) for key in changes}
+    action = await pending_service.propose(
+        db,
+        user,
+        "update_contact",
+        {"contact_id": args.contact_id, **changes},
+        preview={"before": before},
+    )
+    summary = "、".join(f"{key} → {value}" for key, value in changes.items())
+    return (
+        f"已生成修改联系人提议（编号 {action.id}，待确认）：{detail.display_name}"
+        f"（id={detail.id}）的 {summary}。需要用户在界面确认后才会生效。"
+    )
+
+
+async def _run_queue_delete_contact(db: AsyncSession, user, args: ContactIdArgs) -> str:
+    """归档联系人提议入队：preview 带实体摘要，面板显示"将删除：谁"。"""
+    from app.modules.ai import pending as pending_service
+
+    detail = await contacts_service.get_contact(db, user, args.contact_id)
+    action = await pending_service.propose(
+        db,
+        user,
+        "delete_contact",
+        {"contact_id": args.contact_id},
+        preview={"summary": f"{detail.display_name}（id={detail.id}）"},
+    )
+    return (
+        f"已生成归档联系人提议（编号 {action.id}，待确认）：{detail.display_name}"
+        f"（id={detail.id}）。归档是软删，可在名册中恢复；需要用户在界面确认后才会执行。"
+    )
+
+
+async def _run_queue_promote_contact(db: AsyncSession, user, args: ContactIdArgs) -> str:
+    """边缘 → 直接 升级提议入队。"""
+    from app.modules.ai import pending as pending_service
+
+    detail = await contacts_service.get_contact(db, user, args.contact_id)
+    action = await pending_service.propose(
+        db,
+        user,
+        "promote_contact",
+        {"contact_id": args.contact_id},
+        preview={"summary": f"{detail.display_name}（id={detail.id}）升级为直接联系人"},
+    )
+    return (
+        f"已生成升级联系人提议（编号 {action.id}，待确认）：{detail.display_name}"
+        f"（id={detail.id}）。需要用户在界面确认后才会生效。"
+    )
+
+
 # ---------- 注册表 ----------
 
 
@@ -420,6 +517,33 @@ ALL_TOOLS: list[AiTool] = [
         risk="write_queue",
         args_schema=CreateContactArgs,
         run=_run_queue_create_contact,
+    ),
+    AiTool(
+        name="update_contact",
+        label="改联系人",
+        description=(
+            "修改已有联系人的字段（只提交要改的项，需用户确认后生效）；"
+            "调它之前必须先用 get_contact 回读现状，禁止凭空改写"
+        ),
+        risk="write_queue",
+        args_schema=UpdateContactArgs,
+        run=_run_queue_update_contact,
+    ),
+    AiTool(
+        name="delete_contact",
+        label="归档联系人",
+        description="归档（软删）一位联系人，仅所有者可归档（需用户确认后生效）",
+        risk="write_queue",
+        args_schema=ContactIdArgs,
+        run=_run_queue_delete_contact,
+    ),
+    AiTool(
+        name="promote_contact",
+        label="升级为直接联系人",
+        description="把边缘联系人升级为直接联系人，数据全部保留（需用户确认后生效）",
+        risk="write_queue",
+        args_schema=ContactIdArgs,
+        run=_run_queue_promote_contact,
     ),
 ]
 

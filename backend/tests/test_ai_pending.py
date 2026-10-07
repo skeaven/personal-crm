@@ -212,3 +212,62 @@ async def test_propose_without_preview_stores_null(db_session, make_user):
     action = await pending_service.propose(db_session, demo, "create_task", {"title": "买花"})
 
     assert action.preview is None
+
+
+async def test_approve_update_contact_changes_only_submitted_fields(db_session, make_user):
+    """确认改联系人：只改提交字段，其余字段原样保留。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴", phone="138", organization="极星科技")
+    action = await pending_service.propose(
+        db_session, demo, "update_contact", {"contact_id": contact.id, "phone": "139"}
+    )
+
+    await pending_service.approve(db_session, demo, action.id)
+
+    from app.modules.contacts import service as contacts_service
+
+    detail = await contacts_service.get_contact(db_session, demo, contact.id)
+    assert detail.phone == "139"
+    assert detail.organization == "极星科技", "未提交的字段不该被清空"
+
+
+async def test_approve_update_on_missing_contact_records_failure(db_session, make_user):
+    """提议引用的联系人已不存在：记 ok=False 让人看见失败，不 500 卡在 pending。"""
+    demo, _ = await make_user(username="demo")
+    action = await pending_service.propose(
+        db_session, demo, "update_contact", {"contact_id": 999999, "phone": "139"}
+    )
+
+    result = await pending_service.approve(db_session, demo, action.id)
+
+    assert result.status == "executed"
+    assert result.result["ok"] is False
+
+
+async def test_approve_delete_contact_archives_it(db_session, make_user):
+    """确认归档：联系人从名册消失（软删），但记录仍在、不是物理删除。
+
+    软删口径由 HTTP 侧 test_contacts.py::test_archive_is_soft_delete 钉死：
+    列表不可见、详情仍可读（status=archived）——归档工具走的是同一个 service 函数，
+    行为必须与 UI 的删除按钮完全一致。
+    """
+    from sqlalchemy import select
+
+    from app.modules.contacts import service as contacts_service
+    from app.modules.contacts.models import Contact
+
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴")
+    action = await pending_service.propose(
+        db_session, demo, "delete_contact", {"contact_id": contact.id}
+    )
+
+    result = await pending_service.approve(db_session, demo, action.id)
+
+    assert result.result["ok"] is True
+    roster = await contacts_service.list_contacts(db_session, demo, tier=None, search=None)
+    assert all(item.id != contact.id for item in roster), "归档后应从名册消失"
+    row = (
+        await db_session.execute(select(Contact).where(Contact.id == contact.id))
+    ).scalar_one()
+    assert row.status == "archived", "软删：行仍在，只是 status 变了"
