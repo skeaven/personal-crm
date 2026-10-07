@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BusinessError, ValidationError
+from app.core.errors import BusinessError, NotFoundError, ValidationError
 from app.modules.contacts import service as contacts_service
 from app.modules.dashboard import service as dashboard_service
 from app.modules.records import service as records_service
@@ -20,10 +20,20 @@ from app.modules.records import service as records_service
 # ---------- 入参 schema ----------
 
 
-class SearchContactsArgs(BaseModel):
-    """联系人搜索入参。"""
+class ListContactsArgs(BaseModel):
+    """名册列表入参：不传任何条件即全量（受调用者可读范围约束）。"""
 
-    query: str = Field(min_length=1, description="姓名/昵称关键字")
+    tier: Literal["direct", "edge"] | None = Field(default=None, description="层级过滤")
+    search: str | None = Field(default=None, description="姓名/昵称/单位关键字")
+    activity: Literal["recent_30d", "stale_180d"] | None = Field(
+        default=None, description="recent_30d=近 30 天联系过；stale_180d=超半年未联系"
+    )
+
+
+class GetContactArgs(BaseModel):
+    """读单人完整资料入参（含重要日期）。"""
+
+    contact_id: int
 
 
 class SemanticSearchArgs(BaseModel):
@@ -39,7 +49,7 @@ class EmptyArgs(BaseModel):
 
 
 class KinshipArgs(BaseModel):
-    """kinship_of 工具入参：目标联系人 id（search_contacts 可拿到）。"""
+    """kinship_of 工具入参：目标联系人 id（list_contacts 可拿到）。"""
 
     contact_id: int
 
@@ -101,18 +111,56 @@ def _format_todo(item: Any) -> str:
     return f"- [{item.source}] {item.title}（{when}）"
 
 
-async def _run_search_contacts(db: AsyncSession, user, args: SearchContactsArgs) -> str:
-    """按关键字列出可读联系人（含 id，供后续工具引用）。"""
-    contacts = await contacts_service.list_contacts(db, user, tier=None, search=args.query)
+async def _run_list_contacts(db: AsyncSession, user, args: ListContactsArgs) -> str:
+    """名册列表：每条给 id + 展示名 + 可区分字段，供模型复述候选给用户确认。"""
+    contacts = await contacts_service.list_contacts(
+        db, user, tier=args.tier, search=args.search, activity=args.activity
+    )
     if not contacts:
-        return f"没有找到匹配「{args.query}」的联系人"
-    lines: list[str] = []
-    for c in contacts[:10]:
-        tier_label = "边缘" if c.tier == "edge" else "直接"
-        lines.append(
-            f"- {c.display_name}（id={c.id}，{tier_label}联系人，{c.owner_display_name} 记录）"
-        )
-    return f"找到 {len(contacts)} 位联系人：\n" + "\n".join(lines)
+        return "没有符合条件的联系人"
+    lines = [
+        f"- {c.display_name}（id={c.id}，{'边缘' if c.tier == 'edge' else '直接'}联系人"
+        f"{'，单位：' + c.organization if c.organization else ''}，{c.owner_display_name} 记录）"
+        for c in contacts
+    ]
+    return f"共 {len(contacts)} 位：\n" + "\n".join(lines)
+
+
+async def _run_get_contact(db: AsyncSession, user, args: GetContactArgs) -> str:
+    """读单人完整资料 + 重要日期：改之前的回读入口（看得到现状才谈得上改）。"""
+    try:
+        detail = await contacts_service.get_contact(db, user, args.contact_id)
+    except NotFoundError:
+        # 不可读与不存在给同一句话，不泄露存在性（判权口径见 permission.py）
+        return f"没有找到 id={args.contact_id} 的联系人"
+    fields = [
+        ("姓名", detail.name),
+        ("昵称", detail.nickname),
+        ("单位", detail.organization),
+        ("电话", detail.phone),
+        ("微信", detail.wechat),
+        ("QQ", detail.qq),
+        ("邮箱", detail.email),
+        ("毕业院校", detail.school_name),
+        ("现居地", detail.current_address),
+        ("家庭地址", detail.family_address),
+        ("兴趣爱好", detail.hobbies),
+        ("所在地", detail.location),
+        ("备注", detail.bio),
+        ("层级", "边缘" if detail.tier == "edge" else "直接"),
+    ]
+    lines = [f"{label}：{value}" for label, value in fields if value]
+    if detail.dates:
+        lines.append("重要日期：")
+        for item in detail.dates:
+            when = (
+                item.date_solar.isoformat()
+                if item.date_solar
+                else f"农历 {item.lunar_month} 月 {item.lunar_day} 日"
+            )
+            lead = "、".join(str(day) for day in item.reminder_lead_days)
+            lines.append(f"  - id={item.id} {item.type} {when}（提前 {lead} 天提醒）")
+    return f"联系人 id={detail.id} 的资料：\n" + "\n".join(lines)
 
 
 async def _run_kinship_of(db: AsyncSession, user, args: KinshipArgs) -> str:
@@ -142,7 +190,7 @@ async def _run_upcoming_todos(db: AsyncSession, user, args: EmptyArgs) -> str:
 async def _resolve_contact_by_name(
     db: AsyncSession, user, name: str
 ) -> tuple[int, str] | None:
-    """按展示名/昵称解析联系人；多命中取第一个（LLM 会先经 search_contacts 消歧）。"""
+    """按展示名/昵称解析联系人；多命中取第一个（LLM 会先经 list_contacts 消歧）。"""
     contacts = await contacts_service.list_contacts(db, user, tier=None, search=name)
     if not contacts:
         return None
@@ -280,18 +328,31 @@ class AiTool:
 
 ALL_TOOLS: list[AiTool] = [
     AiTool(
-        name="search_contacts",
-        label="搜联系人",
-        description="按姓名/昵称/单位关键字搜索联系人，返回 id 与展示名",
+        name="list_contacts",
+        label="查名册",
+        description=(
+            "列出可读联系人（可按层级/关键字/联系活跃度过滤），每条带 id；"
+            "找人、看名册、以及任何后续要按 id 操作的场景都先用它拿 id"
+        ),
         risk="read",
-        args_schema=SearchContactsArgs,
-        run=_run_search_contacts,
+        args_schema=ListContactsArgs,
+        run=_run_list_contacts,
+    ),
+    AiTool(
+        name="get_contact",
+        label="读联系人资料",
+        description=(
+            "按 id 读某位联系人的完整资料与重要日期；**改任何联系人字段之前必须先用它回读现状**"
+        ),
+        risk="read",
+        args_schema=GetContactArgs,
+        run=_run_get_contact,
     ),
     AiTool(
         name="kinship_of",
         label="查称谓",
         description=(
-            "查某位联系人是「我」的什么人（中文称谓+辈分）；先用 search_contacts 拿 id"
+            "查某位联系人是「我」的什么人（中文称谓+辈分）；先用 list_contacts 拿 id"
         ),
         risk="read",
         args_schema=KinshipArgs,
@@ -317,7 +378,7 @@ ALL_TOOLS: list[AiTool] = [
         name="semantic_search",
         label="语义搜索",
         description="按含义搜索所有记录（联系人/活动/礼物/资金/备注），"
-                    "适合模糊描述如「谁爱钓鱼」「孩子升学」；精确关键字搜索用 search_contacts",
+                    "适合模糊描述如「谁爱钓鱼」「孩子升学」；精确关键字搜索用 list_contacts",
         risk="read",
         args_schema=SemanticSearchArgs,
         run=_run_semantic_search,
@@ -352,7 +413,7 @@ ALL_TOOLS: list[AiTool] = [
         label="建联系人",
         description=(
             "录入一个新联系人（口述或名片/截图识别均可，需用户确认后生效）；"
-            "提议前先用 search_contacts 查同名"
+            "提议前先用 list_contacts 查同名"
         ),
         risk="write_queue",
         args_schema=CreateContactArgs,

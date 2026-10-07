@@ -14,8 +14,7 @@ from app.modules.ai.pending import EXECUTORS
 VERBS = ("list", "get", "create", "update", "delete", "promote", "convert", "mark")
 
 # 历史命名不遵循动词表，冻结在此；新增工具不得再进这个集合。
-# Task 7 删除 search_contacts 时，同步把它从本集合移除。
-LEGACY_NAMES = {"kinship_of", "semantic_search", "search_contacts"}
+LEGACY_NAMES = {"kinship_of", "semantic_search"}
 
 
 def test_tool_names_are_unique():

@@ -10,6 +10,7 @@ from app.modules.ai.registry import build_args, get_tool
 from tests.factories import (
     create_activity_for,
     create_contact_for,
+    create_date_for,
     create_family_user,
     create_gift_for,
     create_task_for,
@@ -28,24 +29,68 @@ async def _run_tool(db, user, tool_name: str, **args) -> str:
     return await tool.run(db, user, build_args(tool, args))
 
 
-async def test_search_contacts_tool(db_session, make_user):
-    """搜索工具：命中昵称，输出含展示名（agent 后续引用）。"""
+async def test_list_contacts_tool(db_session, make_user):
+    """名册工具：命中昵称，输出含展示名（agent 后续引用）。"""
     demo, _ = await make_user(username="demo")
     await create_contact_for(demo, name="陈建国", nickname="老爸")
 
-    out = await _run_tool(db_session, demo, "search_contacts", query="老爸")
+    out = await _run_tool(db_session, demo, "list_contacts", search="老爸")
     assert "老爸" in out
 
 
-async def test_search_contacts_respects_visibility(db_session, make_user):
-    """搜索只出现在发起用户可读范围内（私密联系人不出现在家人搜索里）。"""
+async def test_list_contacts_respects_visibility(db_session, make_user):
+    """名册只出现在发起用户可读范围内（私密联系人不出现在家人列表里）。"""
     demo, _ = await make_user(username="demo")
     await create_family_user(family_id=demo.family_id, username="tong")
     await create_contact_for(demo, name="周明", visibility="private")
     tong, _ = await create_family_user(family_id=demo.family_id, username="tong2")
 
-    out = await _run_tool(db_session, tong, "search_contacts", query="周")
+    out = await _run_tool(db_session, tong, "list_contacts", search="周")
     assert "周明" not in out
+
+
+async def test_list_contacts_returns_ids_and_distinguishing_fields(db_session, make_user):
+    """每条都带 id 与可区分字段：多命中时模型要能复述候选给用户确认（spec §3.4）。"""
+    demo, _ = await make_user(username="demo")
+    await create_contact_for(demo, name="唐琴", organization="极星科技")
+    await create_contact_for(demo, name="唐琴", organization="另一家")
+
+    text = await _run_tool(db_session, demo, "list_contacts", search="唐琴")
+
+    assert text.count("id=") == 2
+    assert "极星科技" in text and "另一家" in text
+
+
+async def test_get_contact_returns_full_fields_and_dates(db_session, make_user):
+    """get_contact 是改之前的回读入口：字段与重要日期一次给全。"""
+    demo, _ = await make_user(username="demo")
+    contact = await create_contact_for(demo, name="唐琴", phone="13800000000")
+    await create_date_for(
+        demo, contact.id, type="birthday", calendar="lunar", lunar_month=9, lunar_day=24
+    )
+
+    text = await _run_tool(db_session, demo, "get_contact", contact_id=contact.id)
+
+    assert "唐琴" in text
+    assert "13800000000" in text
+    assert "农历" in text
+
+
+async def test_get_contact_of_unreadable_contact_reports_not_found(db_session, make_user):
+    """别人的私密联系人不可读：报"没有找到"，不泄露它是否存在。"""
+    owner, _ = await make_user(username="owner")
+    other, _ = await make_user(username="other", family_id=owner.family_id)
+    secret = await create_contact_for(owner, name="私密人", visibility="private")
+
+    text = await _run_tool(db_session, other, "get_contact", contact_id=secret.id)
+
+    assert "没有找到" in text
+    assert "私密人" not in text
+
+
+async def test_search_contacts_is_gone(db_session, make_user):
+    """search_contacts 已合并进 list_contacts（spec §3.5）：按名寻址的入口不应存在。"""
+    assert get_tool("search_contacts") is None
 
 
 async def test_get_upcoming_todos_tool(db_session, make_user):
