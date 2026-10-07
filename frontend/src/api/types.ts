@@ -344,6 +344,7 @@ export interface TimelineOut {
 
 export interface ToolOut {
   name: string
+  label: string
   description: string
   risk: 'read' | 'write_queue'
 }

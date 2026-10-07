@@ -177,12 +177,24 @@ async function decide(action: PendingActionOut, approve: boolean): Promise<void>
   }
 }
 
-/** 工具名 → 中文（确认面板标题）；未映射的新工具回退原名。 */
-const TOOL_LABELS: Record<string, string> = {
-  create_task: '建待办',
-  create_activity: '记活动',
-  create_contact: '建联系人',
+/** 工具名 → 中文标签：来自 GET /ai/tools（后端单一来源），前端不再维护硬编码映射。 */
+const toolLabels = ref<Record<string, string>>({})
+
+/** 拉取标签；失败静默回退原名——标签加载不了不该让整块确认面板不可用。 */
+async function loadToolLabels(): Promise<void> {
+  try {
+    const list = await aiApi.tools()
+    toolLabels.value = Object.fromEntries(list.map((tool) => [tool.name, tool.label]))
+  } catch {
+    toolLabels.value = {}
+  }
 }
+
+/** 工具中文名（确认面板标题）；未下发的工具回退原名。 */
+function labelOf(toolName: string): string {
+  return toolLabels.value[toolName] ?? toolName
+}
+
 const CONTACT_FIELD_LABELS: Record<string, string> = {
   tier: '层级', name: '姓名', nickname: '昵称',
   organization: '单位', phone: '电话', qq: 'QQ', wechat: '微信',
@@ -211,7 +223,10 @@ function payloadText(action: PendingActionOut): string {
   return parts.join(' · ')
 }
 
-onMounted(refreshPending)
+onMounted(() => {
+  void loadToolLabels()
+  void refreshPending()
+})
 </script>
 
 <template>
@@ -241,7 +256,7 @@ onMounted(refreshPending)
       </div>
       <div v-for="action in pendingActions" :key="action.id" class="pending-item">
         <div class="pending-title">
-          <el-tag size="small" type="warning">{{ TOOL_LABELS[action.tool_name] ?? action.tool_name }}</el-tag>
+          <el-tag size="small" type="warning">{{ labelOf(action.tool_name) }}</el-tag>
           <span>{{ payloadText(action) }}</span>
         </div>
         <div class="pending-actions">

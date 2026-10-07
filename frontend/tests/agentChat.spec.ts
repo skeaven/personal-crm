@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 
-const { chat, pendingList, uploadTemp } = vi.hoisted(() => ({
+const { chat, pendingList, tools, uploadTemp } = vi.hoisted(() => ({
   chat: vi.fn(),
   pendingList: vi.fn(),
+  tools: vi.fn(),
   uploadTemp: vi.fn(),
 }))
-vi.mock('@/api/ai', () => ({ aiApi: { chat, pendingList } }))
+vi.mock('@/api/ai', () => ({ aiApi: { chat, pendingList, tools } }))
 // 保留真实 ApiError（组件用 instanceof 判错），只替换 uploadTemp
 vi.mock('@/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/client')>()
@@ -25,6 +26,7 @@ const MOUNT_OPTIONS = {
 beforeEach(() => {
   chat.mockReset()
   pendingList.mockReset().mockResolvedValue([])
+  tools.mockReset().mockResolvedValue([])
   uploadTemp.mockReset().mockResolvedValue({ temp_path: 'tmp/9/card.png' })
 })
 
@@ -116,6 +118,10 @@ describe('AgentChat 确认面板', () => {
 
 
   it('create_contact 提议用中文标签渲染（层级转译为直接/边缘）', async () => {
+    // 工具中文名改由 /ai/tools 下发（前端不再硬编码），断言前须把标签喂给组件。
+    tools.mockResolvedValue([
+      { name: 'create_contact', label: '建联系人', description: '', risk: 'write_queue' },
+    ])
     pendingList.mockResolvedValue([
       {
         id: 1,
@@ -140,6 +146,9 @@ describe('AgentChat 确认面板', () => {
   })
 
   it('其他工具提议维持键值拼写，工具名走中文映射', async () => {
+    tools.mockResolvedValue([
+      { name: 'create_task', label: '建待办', description: '', risk: 'write_queue' },
+    ])
     pendingList.mockResolvedValue([
       {
         id: 2,
@@ -156,5 +165,47 @@ describe('AgentChat 确认面板', () => {
 
     expect(wrapper.get('.pending-item').text()).toContain('title: 给老爸打电话')
     expect(wrapper.text()).toContain('建待办')
+  })
+
+  it('工具名用 /ai/tools 下发的中文标签渲染', async () => {
+    tools.mockResolvedValue([
+      { name: 'update_contact', label: '改联系人', description: '', risk: 'write_queue' },
+    ])
+    pendingList.mockResolvedValue([
+      {
+        id: 5,
+        tool_name: 'update_contact',
+        payload: { contact_id: 39, phone: '139' },
+        status: 'pending',
+        result: null,
+        created_at: '2026-10-06T00:00:00Z',
+      },
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('改联系人')
+  })
+
+  it('标签接口失败时回退工具原名，面板仍可用', async () => {
+    tools.mockRejectedValue(new Error('boom'))
+    pendingList.mockResolvedValue([
+      {
+        id: 6,
+        tool_name: 'delete_contact',
+        payload: { contact_id: 39 },
+        status: 'pending',
+        result: null,
+        created_at: '2026-10-06T00:00:00Z',
+      },
+    ])
+
+    const wrapper = mount(AgentChat, MOUNT_OPTIONS)
+    await flushPromises()
+    await openPending(wrapper)
+
+    expect(wrapper.get('.pending-item').text()).toContain('delete_contact')
   })
 })
