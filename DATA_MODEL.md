@@ -1,7 +1,7 @@
 # 数据模型设计（Level 1 基准，随 Level 迭代扩展）
 
-> 依据：`TECH_DECISIONS.md` D3（PostgreSQL + pgvector）、D6（AI）、D7（权限）、D11（MCP）。
-> 所有业务表统一遵守 D7：所有者写入隔离 + 可见性两档（private 私密 / family 家庭可见只读）。
+> 依据：`TECH_DECISIONS.md` D3（PostgreSQL + pgvector）、D6（AI）、D7（权限，2026-10-17 重构为空间化模型）、D11（MCP）。
+> **权限模型 V2**（2026-10-17）：数据归属于**空间（Space）**，分为共享空间（家庭级）和用户空间（个人级）。
 > 命名：表名复数蛇形；主键 `id` BIGINT 自增；外键显式命名；时间戳一律 timestamptz。
 
 ## 1. 账号与家庭
@@ -17,12 +17,29 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | BIGINT PK | |
-| family_id | BIGINT FK→families | 一个用户只属一个家庭组（D7：不做多层组织） |
+| family_id | BIGINT FK→families | 一个用户只属一个家庭组 |
 | username | VARCHAR(50) UNIQUE | 登录名，小写存储 |
 | display_name | VARCHAR(50) | 展示名（如"老公""老婆"） |
 | password_hash | VARCHAR(255) | pwdlib bcrypt |
 | is_active | BOOLEAN | 停用开关 |
 | created_at / updated_at | TIMESTAMPTZ | |
+
+### spaces 空间（2026-10-17 新增）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | BIGINT PK | |
+| type | VARCHAR(20) | 'shared'（家庭共享空间）/ 'user'（用户私有空间） |
+| family_id | BIGINT FK→families NULL | 共享空间所属家庭（type='shared' 时必填） |
+| owner_user_id | BIGINT FK→users NULL | 用户空间所有者（type='user' 时必填） |
+| name | VARCHAR(100) | 空间名称 |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+**约束：**
+- `CHECK ((type='shared' AND family_id IS NOT NULL AND owner_user_id IS NULL) OR (type='user' AND owner_user_id IS NOT NULL AND family_id IS NULL))`
+- `UNIQUE (family_id) WHERE type='shared'`（每个家庭一个共享空间）
+- `UNIQUE (owner_user_id) WHERE type='user'`（每个用户一个用户空间）
+
+**索引：** `(type)`, `(family_id)`, `(owner_user_id)`
 
 ### user_tokens 外部客户端访问令牌（D11，MCP 用）
 | 字段 | 类型 | 说明 |
@@ -44,14 +61,33 @@
 | updated_by | BIGINT FK→users NULL | |
 | updated_at | TIMESTAMPTZ | |
 
-## 2. 联系人（双层模型）
+### audit_logs 操作审计日志（2026-10-17 新增）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | BIGINT PK | |
+| user_id | BIGINT FK→users | 操作人 |
+| action | VARCHAR(20) | 操作类型：create / update / delete / move |
+| occurred_at | TIMESTAMPTZ | 操作时间 |
+| entity_type | VARCHAR(50) | 实体类型：contact / activity / gift / ... |
+| entity_id | BIGINT | 实体 ID |
+| old_data | JSONB NULL | 原始数据（update/delete 时记录） |
+| new_data | JSONB NULL | 新数据（create/update 时记录） |
+| space_id | BIGINT FK→spaces NULL | 操作发生在哪个空间 |
+| ip_address | VARCHAR(50) NULL | IP 地址 |
+| user_agent | TEXT NULL | User-Agent |
+| created_at | TIMESTAMPTZ | |
+
+**索引：** `(user_id)`, `(entity_type, entity_id)`, `(occurred_at DESC)`, `(space_id)`
+
+## 2. 联系人（双层模型，2026-10-17 空间化重构）
 
 ### contacts 联系人
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | BIGINT PK | |
-| owner_user_id | BIGINT FK→users | 所有者，唯一可写（D7） |
-| family_id | BIGINT FK→families | 冗余家庭 ID，服务层保证与 owner 一致，用于家庭范围查询 |
+| **space_id** | BIGINT FK→spaces | 所属空间（替代原 owner_user_id + visibility） |
+| **creator_user_id** | BIGINT FK→users | 创建者（用于审计和权限判定） |
+| family_id | BIGINT FK→families | 冗余家庭 ID（用于快速查询和去重约束） |
 | tier | ENUM(direct, edge) | 直接联系人 / 边缘联系人（叶子）；升级 = 改 tier，数据无损 |
 | name | VARCHAR(100) NOT NULL DEFAULT '' | 姓名（中文姓名整体存储，D23；不再拆分姓/名） |
 | nickname | VARCHAR(100) NULL | 昵称/称呼（外号、亲近称呼，如"老王""三婶"） |
@@ -69,17 +105,26 @@
 | location_lng | DOUBLE PRECISION NULL | 经度缓存（geo 解析结果，location 变更才重算） |
 | location_lat | DOUBLE PRECISION NULL | 纬度缓存（同上） |
 | location_source | VARCHAR(10) NULL | 坐标来源：amap / static / none（NULL=未解析） |
+| location_province | VARCHAR(50) NULL | 所属省级名称（地图 choropleth 聚合维度） |
 | bio | TEXT NULL | 一句话简介 |
 | avatar_path | VARCHAR(255) NULL | 本地卷相对路径（D10 首版本地存储） |
-| visibility | ENUM(private, family) | D7 可见性 |
 | status | ENUM(active, archived) | 归档代替删除，保护历史关系边 |
 | created_at / updated_at | TIMESTAMPTZ | |
 
-索引：`(family_id, status)`、`(owner_user_id)`；同名检测按姓名全等查询，当前数据量走上述索引即可，不单建。`search_text` 生成列 + pg_trgm GIN 曾列入 Level 1 计划但从未实现（名册搜索走 `name`/`nickname` 的 ILIKE），需要全文检索时再补。
+**字段变更（2026-10-17）：**
+- 新增：`space_id`（替代 owner_user_id + visibility）
+- 新增：`creator_user_id`（记录创建者）
+- 移除：`owner_user_id`（由 creator_user_id 替代）
+- 移除：`visibility`（由 space.type 决定）
+
+**约束：**
+- `UNIQUE (family_id, name)`（同家庭名字唯一，2026-10-17 新增）
+
+**索引：** `(family_id, status)`, `(space_id)`, `(creator_user_id)`
 
 **展示名规则**（model property 唯一实现，禁在前端重复实现）：`nickname > name > 「（未命名）」`。
 
-## 3. 关系（图）
+## 3. 关系（图，2026-10-17 空间化重构）
 
 ### relationship_types 关系类型字典
 | 字段 | 类型 | 说明 |
@@ -99,6 +144,30 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | BIGINT PK | |
+| **space_id** | BIGINT FK→spaces | 所属空间（强制 user 类型，2026-10-17 新增） |
+| from_contact_id | BIGINT FK→contacts | 主体（"A 是 B 的丈夫"：from=A） |
+| to_contact_id | BIGINT FK→contacts | 客体 |
+| type_id | BIGINT FK→relationship_types | |
+| from_role | VARCHAR(30) NULL | from 是 to 的角色（father/husband/elder_brother…），系统类型必填 |
+| to_role | VARCHAR(30) NULL | to 是 from 的角色（son/wife/younger_brother…） |
+| status | VARCHAR(10) | active / former（离异、断绝等历史关系保留）；默认 active |
+| owner_user_id | BIGINT FK→users | 谁建谁维护（保留用于权限判定） |
+| note | VARCHAR(200) NULL | 补充说明 |
+| created_at / updated_at | TIMESTAMPTZ | |
+
+**字段变更（2026-10-17）：**
+- 新增：`space_id`（强制 user 类型空间）
+- 移除：`family_id`（关系完全私有化）
+- 移除：`visibility`（关系强制私有）
+
+**约束：**
+- `UNIQUE (from_contact_id, to_contact_id, type_id)`
+- `CHECK (space_id IN (SELECT id FROM spaces WHERE type = 'user'))`（关系只能属于用户空间）
+
+**索引：** `(space_id)`, `(from_contact_id)`, `(to_contact_id)`
+
+**可见性规则（2026-10-17 重构）**：关系完全私有，只有创建者（owner_user_id）可见和可编辑。
+| id | BIGINT PK | |
 | from_contact_id | BIGINT FK→contacts | 主体（"A 是 B 的丈夫"：from=A） |
 | to_contact_id | BIGINT FK→contacts | 客体 |
 | type_id | BIGINT FK→relationship_types | |
@@ -115,14 +184,16 @@ edge↔edge 边：数据层允许（建边时两端须为 active 且对创建者
 **视角解析（D15）**：查询时按当前节点在边的哪一端取对端 role 字段；role 为空（旧数据/自定义类型）退回 name/reverse_name 句式。
 **"我"的绑定（D15）**：users.contact_id（可空 FK→contacts，唯一）把账号锚定到联系人节点，称谓推导以它为起点。
 
-## 4. 时间与生活记录（表结构定稿 2026-09-21，功能 Level 3 落地）
+## 4. 时间与生活记录（表结构定稿 2026-09-21，功能 Level 3 落地，2026-10-17 空间化重构）
 
 ### important_dates 重要日期（D8 农历原生支持）
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | BIGINT PK | |
 | contact_id | BIGINT FK→contacts | |
-| owner_user_id / family_id / visibility | 同 D7 三件套 | |
+| **space_id** | BIGINT FK→spaces | 所属空间（2026-10-17 新增） |
+| **creator_user_id** | BIGINT FK→users | 创建者（2026-10-17 新增） |
+| family_id | BIGINT FK→families | 冗余字段（2026-10-17 保留） |
 | type | ENUM(birthday, anniversary, memorial, other) | |
 | title | VARCHAR(100) NULL | 自定义名（"结婚纪念日"） |
 | calendar | ENUM(solar, lunar) | 历法 |
@@ -134,7 +205,7 @@ edge↔edge 边：数据层允许（建边时两端须为 active 且对创建者
 | created_at / updated_at | TIMESTAMPTZ | |
 
 ### notes 备注 / tasks 待办
-统一骨架：`id + owner_user_id + family_id + visibility + created_at/updated_at`（SQLAlchemy `OwnershipMixin` 一处实现），差异字段：
+统一骨架：`id + space_id + creator_user_id + family_id + created_at/updated_at`（2026-10-17 SpaceMixin），差异字段：
 - notes: `contact_id nullable FK` + `content TEXT`
 - tasks: `contact_id nullable` + `title VARCHAR(200)` + `detail TEXT nullable` + `due_at TIMESTAMPTZ nullable` + `status ENUM(todo, done, cancelled)` + `completed_at`
 
@@ -143,11 +214,15 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id + D7 三件套 + 时间戳 | | |
+| id | BIGINT PK | |
+| **space_id** | BIGINT FK→spaces | 所属空间（2026-10-17 新增） |
+| **creator_user_id** | BIGINT FK→users | 创建者（2026-10-17 新增） |
+| family_id | BIGINT FK→families | 冗余字段（2026-10-17 保留） |
 | title | VARCHAR(200) | 活动标题 |
 | occurred_at | TIMESTAMPTZ | 活动时间 |
 | location | VARCHAR(200) NULL | 地点 |
 | detail | TEXT NULL | 记录详情（Markdown） |
+| created_at / updated_at | TIMESTAMPTZ | |
 
 | activity_participants | 类型 | 说明 |
 |---|---|---|
@@ -160,7 +235,10 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 ### gifts 礼物往来（已送出 / 已收到）
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id + D7 三件套 + 时间戳 | | |
+| id | BIGINT PK | |
+| **space_id** | BIGINT FK→spaces | 所属空间（2026-10-17 新增） |
+| **creator_user_id** | BIGINT FK→users | 创建者（2026-10-17 新增） |
+| family_id | BIGINT FK→families | 冗余字段（2026-10-17 保留） |
 | contact_id | BIGINT FK→contacts NULL | 对象联系人（家庭层面往来可空，UI 引导必选） |
 | direction | ENUM(given, received) | 送出 / 收到 |
 | title | VARCHAR(200) | 礼物名称 |
@@ -170,11 +248,15 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 | given_at | DATE NULL | 送出/收到日期 |
 | link | VARCHAR(500) NULL | 购买/参考链接（可选） |
 | description | TEXT NULL | 礼物说明（Markdown 可编辑） |
+| created_at / updated_at | TIMESTAMPTZ | |
 
 ### wishlist_items 愿望清单（还没送出）
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id + D7 三件套 + 时间戳 | | |
+| id | BIGINT PK | |
+| **space_id** | BIGINT FK→spaces | 所属空间（2026-10-17 新增） |
+| **creator_user_id** | BIGINT FK→users | 创建者（2026-10-17 新增） |
+| family_id | BIGINT FK→families | 冗余字段（2026-10-17 保留） |
 | contact_id | BIGINT FK→contacts NULL | 为谁准备 |
 | title | VARCHAR(200) | 想送的礼物 |
 | amount | NUMERIC(12,2) NULL | 预算/价格（可选） |
@@ -188,7 +270,10 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 ### fund_flows 资金往来（借贷等）
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id + D7 三件套 + 时间戳 | | |
+| id | BIGINT PK | |
+| **space_id** | BIGINT FK→spaces | 所属空间（2026-10-17 新增） |
+| **creator_user_id** | BIGINT FK→users | 创建者（2026-10-17 新增） |
+| family_id | BIGINT FK→families | 冗余字段（2026-10-17 保留） |
 | contact_id | BIGINT FK→contacts NULL | 对象联系人 |
 | direction | ENUM(out, in) | 流出（借出/支出） / 流入（借入/收到） |
 | category | ENUM(loan, repayment, gift_money, other) | 借款 / 还款 / 礼金 / 其他 |
@@ -231,13 +316,32 @@ activities 本体不再直接挂 contact_id，经参与者表关联：
 
 唯一约束 `(entity_type, entity_id)`；对账管线见 `app/modules/ai/semantic.py`。
 
-## 6. 权限判定（唯一实现点）
+## 6. 权限判定（唯一实现点，2026-10-17 V2 空间化重构）
 
-`app/services/permission.py` 提供：
-- `readable_filter(user, Model)` — 读取范围 SQL 条件：`(owner==me) OR (visibility=family AND family_id==my_family)`
-- `ensure_can_write(user, record)` — 非所有者写操作抛 `PermissionDeniedError`（API 层转 403）
+`app/services/permission.py` 提供（V2）：
+- `get_user_accessible_space_ids(db, user)` — 返回用户可访问的所有 space ID 列表（自己的用户空间 + 家庭共享空间 + 同家庭其他成员用户空间）
+- `readable_condition(model_cls, space_ids)` — 构造读取范围 SQL 条件：`space_id IN (space_ids)`
+- `can_write(db, user, record)` — 判断用户是否可写某条记录（自己用户空间 或 共享空间 → True）
+- `ensure_can_write(db, user, record)` — 非可写操作抛 `PermissionDeniedError`（API 层转 403）
+
+**权限矩阵（V2）：**
+
+| 数据类型 | 共享空间 | 自己的用户空间 | 他人的用户空间 |
+|---------|---------|--------------|--------------|
+| 联系人 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| 活动 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| 礼物 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| 往来 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| 备注 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| 任务 | 读✓ 写✓ | 读✓ 写✓ | 读✓ 写✗ |
+| **关系** | N/A | 读✓ 写✓ | 读✗ 写✗ |
 
 REST API、MCP 工具、内部 agent 一律经过它，**禁止其他路径判权**（D11 红线）。
+
+**审计日志（2026-10-17 新增）：**
+`app/services/audit.py` 提供：
+- `@audit_log(entity_type)` — 装饰器：自动记录 create/update/delete/move 操作
+- `create_audit_log(...)` — 手动创建审计日志记录
 
 ## activity_images（活动图片，D18）
 

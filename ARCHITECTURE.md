@@ -13,11 +13,12 @@
 
 | 层 | 模块 | 位置 | 拥有的表 | 职责与边界 | Level |
 |---|---|---|---|---|---|
-| L0 地基 | core | `app/core/` | — | 配置、引擎/会话、错误类型、密码/JWT；mixins（D7 三件套载体） | ✅ |
-| L0 横切 | permission | `app/services/permission.py` | — | 全系统唯一判权点（D7/D11 红线），REST/MCP/内部 agent 共用 | ✅ |
+| L0 地基 | core | `app/core/` | — | 配置、引擎/会话、错误类型、密码/JWT；mixins（SpaceMixin 替代 OwnershipMixin，2026-10-17 空间化重构） | ✅ |
+| L0 横切 | permission | `app/services/permission.py` | — | 全系统唯一判权点（V2 空间化模型，2026-10-17 重构），REST/MCP/内部 agent 共用 | ✅ |
+| L0 横切 | audit | `app/services/audit.py` | — | 操作审计日志服务（装饰器模式自动记录，2026-10-17 新增） | ✅ |
 | L0 横切 | storage | `app/services/storage.py` | — | **文件存储唯一实现点**（临时区/正式区/缩略图/路径安全，D18）；配置注入、无表无状态；文件删除经 `defer_delete` 延到事务提交后 | ✅ |
 | L0 横切 | uploads | `app/modules/uploads/` | — | 通用临时上传与本人读取端点（无表）；业务图片的鉴权读取归各业务模块 | ✅ |
-| L1 身份 | auth | `app/modules/auth/` | families, users, user_tokens | 注册登录、JWT、家庭组成员、MCP 个人访问令牌 | ✅ |
+| L1 身份 | auth | `app/modules/auth/` | families, users, user_tokens, **spaces**, **audit_logs** | 注册登录、JWT、家庭组成员、MCP 个人访问令牌；**空间管理**（共享空间/用户空间）；**审计日志**（操作记录） | ✅ |
 | L2 人 | contacts | `app/modules/contacts/` | contacts, important_dates | 名册 CRUD、direct/edge 双层与升级、展示名规则、同名检测、重要日期；**历法引擎 `calendar.py`（纯函数：农历↔公历、下次发生日）随本模块**；**"最近联系时间"口径（只读 join activities）随本模块**；**位置字段**（location 文本 + 坐标缓存列，保存时经 geo 解析，D14） | ✅ |
 | L2 地理 | geo | `app/modules/geo/` | **无表**（坐标缓存列在 contacts） | **纯函数模块**：地理编码 provider（高德 geo + 静态市县区坐标表 `cities.json` 降级，D14）；配置（key）由调用方注入，自身不读表不发状态，可独立测试；地图页数据端点在 contacts 聚合，不经 geo | ✅ |
 | L3 连接 | graph | `app/modules/graph/` | relationship_types, relationships | 关系类型字典（系统结构化类型 parent/spouse/sibling + 自定义，D15）、关系边 CRUD（**角色化：from_role/to_role/status**，跨用户边、可见性取交集）、图数据组装、**视角推导与称谓引擎 `kinship.py`（纯函数：角色路径→中文称呼+辈分）**；users.contact_id 绑定"我是谁"后以账号为起点推导 | L2 |
@@ -64,11 +65,13 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 | users.contact_id（D15，可空） | auth | contacts（账号锚定到联系人，FK 字符串引用无 import 依赖） |
 | users | auth | families |
 | user_tokens | auth | users |
+| **spaces** | auth | families, users（2026-10-17 新增，空间化权限模型） |
+| **audit_logs** | auth | users, spaces（2026-10-17 新增，操作审计） |
 | app_settings | settings | users（updated_by, nullable） |
-| contacts | contacts | users, families |
+| contacts | contacts | **spaces**, users（creator_user_id）, families（冗余字段）；原 owner_user_id 替换为 space_id + creator_user_id |
 | important_dates | contacts | contacts |
 | relationship_types | graph | — |
-| relationships | graph | contacts ×2, relationship_types, users |
+| relationships | graph | **spaces**（强制 user 类型）, contacts ×2, relationship_types, users（owner_user_id 保留） |
 | notes / tasks | records | contacts（contact_id nullable） |
 | activities | records | —（参与者关联见下行） |
 | activity_participants | records | activities（级联删）, contacts |
@@ -85,7 +88,9 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 |---|---|---|
 | /api/v1/uploads | uploads | ✅ `POST /uploads/temp`（上传到临时区）、`GET /uploads/tmp/{user_id}/{filename}`（仅本人可读） |
 | /api/v1/auth | auth | ✅ `POST /auth/login`、`GET|PUT /auth/me`（绑定"我是谁"）、个人令牌管理 `POST|GET /auth/tokens` + `DELETE /auth/tokens/{id}`（D11，明文仅签发时返回一次） |
-| /api/v1/contacts | contacts | 列表（tier/search/activity 过滤）、详情、创建、更新、升级、归档、同名检测、重要日期 CRUD（/{id}/dates）；计划：`GET /contacts/map-points`（地图页 choropleth+scatter 数据：坐标点 + 省份计数聚合） |
+| /api/v1/spaces | auth | ✅ `GET /spaces`（列出可访问空间）、`GET /spaces/{id}`（空间详情）、`PATCH /spaces/{id}`（更新名称，2026-10-17 新增） |
+| /api/v1/audit-logs | auth | ✅ `GET /audit-logs`（查询操作日志，支持多维度过滤，2026-10-17 新增） |
+| /api/v1/contacts | contacts | 列表（tier/search/activity 过滤，返回 space_id/space_type/can_edit）、详情、创建（**必填 space_id**）、更新、升级、归档、同名检测（**家庭级去重，UNIQUE(family_id, name)**）、重要日期 CRUD（/{id}/dates）；**`PUT /{id}/move`（移动到其他空间，2026-10-17 新增）**；计划：`GET /contacts/map-points`（地图页 choropleth+scatter 数据：坐标点 + 省份计数聚合） |
 | /api/v1/graph | graph | ✅ 关系类型字典（读+自定义新增）、关系边（建/删/视角化列表）、`GET /graph/data`（递归 CTE N 度展开，全图/中心模式） |
 | /api/v1/records | records | ✅ 活动（含参与者与**图片全量替换**，D18）/任务/备注 CRUD；`GET /activities/images/{id}?size=thumb|full`（鉴权读图）；`/activities` 支持 `contact_id`/`limit`/`offset`；备注可见性跟随联系人（私密联系人的备注对家人隐藏） |
 | /api/v1/gifts | gifts | ✅ 礼物往来 + 愿望清单（`/gifts/wishlist/*`），搜索/过滤/转礼物 |
@@ -105,7 +110,8 @@ L4  dashboard      ai                     （contacts/graph/records/settings…�
 
 | 口径 | 唯一实现点 |
 |---|---|
-| 权限判定（读/写） | `app/services/permission.py` |
+| 权限判定（读/写） | `app/services/permission.py`（**V2 空间化模型，2026-10-17 重构**：`get_user_accessible_space_ids()`, `can_write()`, `ensure_can_write()`） |
+| 审计日志记录 | `app/services/audit.py`（装饰器 `@audit_log()`，2026-10-17 新增） |
 | 展示名 display_name | `contacts.models.Contact.display_name` 属性 |
 | 农历↔公历、日期下次发生日 | `contacts/calendar.py`（lunar-python 封装） |
 | "最近联系时间"（联系人维度） | contacts repository 的 last_activity 只读子查询；名册过滤（recent_30d/stale_180d）与 dashboard 统计共用同一实现 |
